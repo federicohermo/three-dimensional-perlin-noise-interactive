@@ -1,0 +1,80 @@
+import { uniforms } from './uniforms.js';
+import { toggleTemporal, resetFrameIdx } from './temporal.js';
+import { attachNearbySphere } from './sphereAttachment.js';
+import { renderer, resizeRenderTargets } from './renderer.js';
+
+export const keys = { w: false, a: false, s: false, d: false };
+
+// Persistent accumulated virtual cursor position.
+// Initially offset so the default shader camera angle faces +Z.
+let accumulatedX = window.innerWidth  * 0.25;
+let accumulatedY = window.innerHeight * 0.5;
+
+let isDragging  = false;
+let lastClientX = 0;
+let lastClientY = 0;
+
+export function registerInputHandlers(domElement) {
+    // ---- Keyboard ----------------------------------------------------------
+    window.addEventListener('keydown', (e) => {
+        const k = e.key.toLowerCase();
+        if (k in keys) keys[k] = true;
+        if (k === 't') {
+            toggleTemporal();
+            resetFrameIdx();
+            uniforms.iJitter.value.set(0, 0);
+        }
+        if (e.code === 'Space') {
+            attachNearbySphere();
+        }
+    });
+
+    window.addEventListener('keyup', (e) => {
+        const k = e.key.toLowerCase();
+        if (k in keys) keys[k] = false;
+    });
+
+    // ---- Resize ------------------------------------------------------------
+    window.addEventListener('resize', () => {
+        const w = window.innerWidth, h = window.innerHeight;
+        renderer.setSize(w, h);
+        uniforms.iResolution.value.set(w, h, 1.0);
+        resizeRenderTargets(w, h);
+        resetFrameIdx();
+    });
+
+    // ---- Mouse -------------------------------------------------------------
+    domElement.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+
+        const dx = e.clientX - lastClientX;
+        const dy = e.clientY - lastClientY;
+
+        accumulatedX += dx;
+        accumulatedY += dy;
+
+        // Clamp pitch to prevent gimbal flip and floor clipping
+        accumulatedY = Math.max(window.innerHeight * 0.45, Math.min(window.innerHeight * 0.85, accumulatedY));
+
+        lastClientX = e.clientX;
+        lastClientY = e.clientY;
+
+        uniforms.iMouse.value.set(accumulatedX, accumulatedY, uniforms.iMouse.value.z, uniforms.iMouse.value.w);
+
+        // Invalidate temporal history to prevent ghosting during motion
+        resetFrameIdx();
+    });
+
+    domElement.addEventListener('mousedown', (e) => {
+        isDragging  = true;
+        lastClientX = e.clientX;
+        lastClientY = e.clientY;
+        uniforms.iMouse.value.set(accumulatedX, accumulatedY, e.clientX, window.innerHeight - e.clientY);
+    });
+
+    domElement.addEventListener('mouseup', () => {
+        isDragging = false;
+        uniforms.iMouse.value.z = -Math.abs(uniforms.iMouse.value.z);
+        uniforms.iMouse.value.w = -Math.abs(uniforms.iMouse.value.w);
+    });
+}
