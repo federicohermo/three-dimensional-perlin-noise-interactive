@@ -34,6 +34,9 @@ uniform vec3 iResolution;
 uniform vec4 iMouse;
 uniform vec2 iJitter;
 uniform vec3 iCameraPos;
+uniform vec3 uAttachedOffsets[10];
+uniform float uAttachedActive[10];
+uniform vec2 uIgnoredCells[10];
 
 // ============================================================================
 // 3D Perlin Noise Raymarcher — Fragment Shader
@@ -94,15 +97,19 @@ float Hash(vec3 p)
     return fract((a.x + a.y) * a.z);
 }
 
-// Hash3: 3D gradient hash for Perlin noise.
-// Maps an integer lattice point to a unit-length pseudo-random gradient vector.
-// Normalization ensures all gradients have equal influence — without it,
-// grid-aligned artifacts appear due to wild variations in gradient magnitude.
-vec3 Hash3(vec3 p)
-{
+// Original Hash3 for Perlin Noise (Don't change!)
+vec3 Hash3(vec3 p) {
     p = fract(p * vec3(0.1031, 0.1030, 0.0973));
     p += dot(p, p.yxz + 33.33);
     return normalize(-1.0 + 2.0 * fract((p.xxy + p.yxx) * p.zyx));
+}
+
+// Sineless Jitter Hash for Grid Sync
+vec3 GetJitter(vec3 p) {
+    p = fract(p * vec3(.1031, .1030, .0973));
+    p += dot(p, p.yxz + 33.33);
+    vec3 h = fract((p.xxy + p.yxx) * p.zyx);
+    return normalize(-1.0 + 2.0 * h) * 4.5;
 }
 
 
@@ -226,18 +233,35 @@ float GetDist(vec3 p, float organicDetail) {
     for(int i = -1; i <= 1; i++) {
         for(int j = -1; j <= 1; j++) {
             vec2 curCell = cell + vec2(float(i), float(j));
-            // Unique jitter per cell
-            vec3 curJit = (Hash3(vec3(curCell, 0.0)) - 0.5) * 8.0;
             // Sphere center in world space: cell center + jitter
-            // Baseline y=7.5, jittered by 0.5 (tamer elevation)
-            vec3 spherePos = vec3(curCell.x * 15.0 + curJit.x, 7.5 + curJit.y * 0.5, curCell.y * 15.0 + curJit.z);
-            repSphereDist = min(repSphereDist, length(p - spherePos) - 0.6);
+            vec3 jitter = GetJitter(vec3(curCell, 0.0));
+            vec3 spherePos = vec3(curCell.x * 15.0 + jitter.x, 7.5 + jitter.y * 0.5, curCell.y * 15.0 + jitter.z);
+            
+            // Check if this cell is ignored (attached)
+            bool ignored = false;
+            for(int k=0; k<10; k++) {
+                if(length(curCell - uIgnoredCells[k]) < 0.1 && uAttachedActive[k] > 0.5) {
+                    ignored = true; break;
+                }
+            }
+            if(!ignored) {
+                repSphereDist = min(repSphereDist, length(p - spherePos) - 0.6);
+            }
         }
     }
     
     // Smoothly combine character sphere with repeated spheres
-    // Reduced k from 1.2 to 0.4 for tighter blending/less premature interaction
     float spheres = smin(sphereDist, repSphereDist, 0.4);
+
+    // Add attached spheres
+    for(int i = 0; i < 10; i++) {
+        if(uAttachedActive[i] > 0.5) {
+            // Attached spheres are relative to camera, but we sample them in world space
+            // p - iCameraPos is local coordinate. uAttachedOffsets is also local.
+            float dAttached = length((p - iCameraPos) - uAttachedOffsets[i]) - 0.6;
+            spheres = smin(spheres, dAttached, 0.4);
+        }
+    }
 
     float basePlaneDist = p.y - 6.0;
     // Plane noise remains in world space for a "traveling" effect
@@ -415,7 +439,10 @@ void main() {
             iResolution: { value: new THREE.Vector3(window.innerWidth, window.innerHeight, 1.0) },
             iMouse: { value: new THREE.Vector4(window.innerWidth * 0.25, window.innerHeight * 0.5, 0, 0) },
             iJitter: { value: new THREE.Vector2(0, 0) },
-            iCameraPos: { value: new THREE.Vector3(0.0, 8.0, 4.0) }
+            iCameraPos: { value: new THREE.Vector3(0.0, 8.0, 4.0) },
+            uAttachedOffsets: { value: Array.from({length: 10}, () => new THREE.Vector3()) },
+            uAttachedActive: { value: new Float32Array(10) },
+            uIgnoredCells: { value: Array.from({length: 10}, () => new THREE.Vector2()) }
         };
 
         const material = new THREE.ShaderMaterial({
@@ -493,6 +520,9 @@ void main() {
                 frameIdx = 0;
                 uniforms.iJitter.value.set(0, 0);
             }
+            if (e.code === 'Space') {
+                attachNearbySphere();
+            }
         });
         window.addEventListener('keyup', (e) => {
             const k = e.key.toLowerCase();
@@ -515,6 +545,92 @@ void main() {
         // Initially offset so the default shader camera angle faces +Z
         let accumulatedX = window.innerWidth * 0.25;
         let accumulatedY = window.innerHeight * 0.5;
+
+        // ---- Attachment Logic ----
+        const attachedSpheres = []; // { offset: Vector3, cell: Vector2 }
+
+        function fract(v) { return v - Math.floor(v); }
+        function dot(a, b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+
+        function getJitter(p) {
+            let px = fract(p.x * 0.1031);
+            let py = fract(p.y * 0.1030);
+            let pz = fract(p.z * 0.0973);
+            let d = px * (py + 33.33) + py * (px + 33.33) + pz * (py + 33.33);
+            px += d; py += d; pz += d;
+            let resX = fract((px + py) * pz);
+            let resY = fract((px + px) * py);
+            let resZ = fract((py + px) * px);
+            return new THREE.Vector3(-1.0 + 2.0 * resX, -1.0 + 2.0 * resY, -1.0 + 2.0 * resZ).normalize().multiplyScalar(4.5);
+        }
+
+        function getSpherePos(cellX, cellZ) {
+            const curCell = new THREE.Vector3(cellX, cellZ, 0.0);
+            const jitter = getJitter(curCell);
+            return new THREE.Vector3(
+                cellX * 15.0 + jitter.x,
+                7.5 + jitter.y * 0.5,
+                cellZ * 15.0 + jitter.z
+            );
+        }
+
+        function attachNearbySphere() {
+            if (attachedSpheres.length >= 10) return;
+            
+            const p = uniforms.iCameraPos.value;
+            const cellX = Math.floor((p.x + 7.5) / 15.0);
+            const cellZ = Math.floor((p.z + 7.5) / 15.0);
+            
+            let bestDist = 4.0; // Very large radius for testing
+            let bestSphere = null;
+            let sphereFound = false;
+
+            for(let i = -1; i <= 1; i++) {
+                for(let j = -1; j <= 1; j++) {
+                    const cx = cellX + i;
+                    const cz = cellZ + j;
+                    
+                    if (attachedSpheres.some(s => Math.abs(s.cell.x - cx) < 0.1 && Math.abs(s.cell.y - cz) < 0.1)) continue;
+
+                    const sPos = getSpherePos(cx, cz);
+                    const dist = p.distanceTo(sPos);
+                    
+                    if (dist < 10.0) sphereFound = true; // For debug logging
+
+                    if (dist < bestDist) {
+                        bestDist = dist;
+                        bestSphere = { 
+                            offset: sPos.clone().sub(p), 
+                            cell: new THREE.Vector2(cx, cz) 
+                        };
+                    }
+                }
+            }
+
+            if (bestSphere) {
+                console.log("SUCCESS: Attaching sphere at relative offset:", bestSphere.offset);
+                attachedSpheres.push(bestSphere);
+                updateAttachmentUniforms();
+            } else {
+                console.log(sphereFound ? "DEBUG: Spheres detected but too far (>4.0 units)." : "DEBUG: No spheres in 3x3 grid.");
+            }
+        }
+
+        function updateAttachmentUniforms() {
+            const offsets = uniforms.uAttachedOffsets.value;
+            const active = uniforms.uAttachedActive.value;
+            const ignored = uniforms.uIgnoredCells.value;
+
+            for (let i = 0; i < 10; i++) {
+                if (i < attachedSpheres.length) {
+                    offsets[i].copy(attachedSpheres[i].offset);
+                    active[i] = 1.0;
+                    ignored[i].copy(attachedSpheres[i].cell);
+                } else {
+                    active[i] = 0.0;
+                }
+            }
+        }
 
         renderer.domElement.addEventListener('mousemove', (e) => {
             if (isDragging) {
