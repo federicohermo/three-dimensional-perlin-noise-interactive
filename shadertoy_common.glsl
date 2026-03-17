@@ -65,18 +65,27 @@ float GetDist(vec3 p, float organicDetail) {
     float sphereDist = (baseSphereDist < 2.5) ? baseSphereDist + 1.1*Noise(p, oct) - 1.1 : baseSphereDist - 1.1;
     sphereDist *= 0.85;
 
-    // Infinite Spheres (Domain Repetition)
-    // Offset slightly so they don't perfectly overlap the origin sphere initially
-    vec3 pRep = p - vec3(5.0, 7.5, 5.0); 
-    pRep.xz = mod(pRep.xz + 7.5, 15.0) - 7.5; // XZ repetition
-    float repSphereDist = length(pRep) - 0.6;
+    // Infinite Spheres (Domain Repetition with Neighbor Search for SDF Continuity)
+    float repSphereDist = 1e10;
+    vec2 cell = floor((p.xz + 7.5) / 15.0);
     
-    // Smoothly combine spheres
-    // Reduced k from 1.2 to 0.4 for tighter blending/less premature interaction
+    for(int i = -1; i <= 1; i++) {
+        for(int j = -1; j <= 1; j++) {
+            vec2 curCell = cell + vec2(float(i), float(j));
+            // Unique jitter per cell
+            vec3 curJit = (Hash3(vec3(curCell, 0.0)) - 0.5) * 8.0;
+            // Sphere center in world space: cell center + jitter
+            // Baseline y=7.5, jittered by 0.5 (tamer elevation)
+            vec3 spherePos = vec3(curCell.x * 15.0 + curJit.x, 7.5 + curJit.y * 0.5, curCell.y * 15.0 + curJit.z);
+            repSphereDist = min(repSphereDist, length(p - spherePos) - 0.6);
+        }
+    }
+    
+    // Smoothly combine character sphere with repeated spheres
     float spheres = smin(sphereDist, repSphereDist, 0.4);
 
     float basePlaneDist = p.y - 4.0;
-    float planeDist = (basePlaneDist < 12.0) ? basePlaneDist + 8.0*Noise(p*.125, oct) - 1.1*Noise(p*.25, oct) : basePlaneDist - 1.1;
+    float planeDist = (basePlaneDist < 12.0) ? basePlaneDist + 8.1*Noise(p*.125, oct) - 1.1*Noise(p*.25, oct) + 0.1 : basePlaneDist - 1.1;
     planeDist *= 0.43;
     
     return min(spheres, planeDist);

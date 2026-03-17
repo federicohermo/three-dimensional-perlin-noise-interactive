@@ -51,5 +51,5 @@ Shadertoy-style 3D Perlin noise raymarcher ported to Three.js.
 
 ### Session 9: Infinite Spheres & Smoothmin
 - **Smooth Minimum Implementation**: Added a polynomial `smin` function to `shadertoy_common.glsl`, `index.html`, and `perlin3d_fixed.glsl` for organic blending between surfaces.
-- **Domain Repetition**: Implemented XZ-plane domain repetition for a grid of infinite spheres.
-- **Blobby Interaction**: Combined the character-following sphere with the repeated infinite spheres using `smin`, creating a "metaball" style connection when they overlap.
+- **Domain Repetition & Randomization**: Implemented XZ-plane domain repetition for infinite spheres. Added hash-based jittering using cell IDs to randomize X, Z, and Y positions within each cell territory.
+- **Blobby Interaction & Refinement**: Combined the character sphere with repeated spheres using `smin`. Tuned $k=0.4$ and baseline height $y=7.5$ for a tight, premium-feeling interaction that clears the terrain.
