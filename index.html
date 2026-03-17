@@ -33,6 +33,7 @@ uniform float iTime;
 uniform vec3 iResolution;
 uniform vec4 iMouse;
 uniform vec2 iJitter;
+uniform vec3 iCameraPos;
 
 // ============================================================================
 // 3D Perlin Noise Raymarcher — Fragment Shader
@@ -195,7 +196,7 @@ float sdBox(vec3 p, vec3 r, float e)
 
 // ---- Scene SDF -------------------------------------------------------------
 float GetDist(vec3 p, float organicDetail) {
-    float camDist = length(p - vec3(0., 1., 0.));
+    float camDist = length(p - iCameraPos);
     float oct = 1.0;
     oct += 2.0 * (1.0 - smoothstep(15.0, 40.0, camDist)); 
     
@@ -203,12 +204,16 @@ float GetDist(vec3 p, float organicDetail) {
     float nearMask = (1.0 - smoothstep(5.0, 15.0, camDist));
     oct += nearMask * organicDetail; 
     
-    vec4 sphere = vec4(0, 1, 4 ,1.1);
+    // Sphere FOLLOWS iCameraPos (Third-person character feel)
+    vec4 sphere = vec4(iCameraPos, 1.1);
     float baseSphereDist = length(p - sphere.xyz) - sphere.w;
-    float sphereDist = (baseSphereDist < 2.5) ? baseSphereDist + 1.1*Noise(p, oct) - 1.1 : baseSphereDist - 1.1;
+    
+    // Noise is sampled in LOCAL SPACE (p - iCameraPos) to prevent displacement swimming
+    float sphereDist = (baseSphereDist < 2.5) ? baseSphereDist + 1.1*Noise(p - iCameraPos, oct) - 1.1 : baseSphereDist - 1.1;
     sphereDist *= 0.85;
 
     float basePlaneDist = p.y;
+    // Plane noise remains in world space for a "traveling" effect
     float planeDist = (basePlaneDist < 12.0) ? basePlaneDist + 8.0*Noise(p*.125, oct) - 1.1*Noise(p*.25, oct) : basePlaneDist - 1.1;
     planeDist *= 0.43;
 
@@ -264,13 +269,19 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     vec3 col = vec3(0.01);
 
     vec2 m = iMouse.xy / iResolution.xy;
-    vec3 ta = vec3(0.0, 1.0, 4.0);
-    float camDist = 4.0;
+    vec3 ta = iCameraPos;             // Target: dynamic center from WASD
+    float camDist = 4.0;              // Orbit radius
     
-    float yaw = -m.x * 12.5662 - 1.5707;
-    float pitch = (m.y - 0.5) * 4.0;
+    // Convert mouse to spherical coordinates (yaw/pitch)
+    float yaw = -m.x * 12.5662 - 1.5707;    // -PI/2 offset so default looks +Z
+    float pitch = (m.y - 0.5) * 4.0;       // Elevation bounds to prevent flipping
     
-    vec3 ro = ta + vec3(camDist * cos(yaw) * cos(pitch), camDist * sin(pitch), camDist * sin(yaw) * cos(pitch));
+    // Cartesian camera origin relative to dynamic target
+    vec3 ro = ta + vec3(
+        camDist * cos(yaw) * cos(pitch),
+        camDist * sin(pitch),
+        camDist * sin(yaw) * cos(pitch)
+    );
     vec3 cw = normalize(ta - ro);
     vec3 cp = vec3(0.0, 1.0, 0.0);
     vec3 cu = normalize(cross(cp, cw));
@@ -313,7 +324,8 @@ void main() {
             iTime: { value: 0.0 },
             iResolution: { value: new THREE.Vector3(window.innerWidth, window.innerHeight, 1.0) },
             iMouse: { value: new THREE.Vector4(window.innerWidth * 0.25, window.innerHeight * 0.5, 0, 0) },
-            iJitter: { value: new THREE.Vector2(0, 0) }
+            iJitter: { value: new THREE.Vector2(0, 0) },
+            iCameraPos: { value: new THREE.Vector3(0.0, 1.0, 4.0) }
         };
 
         const material = new THREE.ShaderMaterial({
@@ -382,12 +394,19 @@ void main() {
             return r;
         }
 
+        const keys = { w: false, a: false, s: false, d: false };
         window.addEventListener('keydown', (e) => {
-            if (e.key === 't' || e.key === 'T') {
+            const k = e.key.toLowerCase();
+            if (k in keys) keys[k] = true;
+            if (k === 't') {
                 temporalOn = !temporalOn;
                 frameIdx = 0;
                 uniforms.iJitter.value.set(0, 0);
             }
+        });
+        window.addEventListener('keyup', (e) => {
+            const k = e.key.toLowerCase();
+            if (k in keys) keys[k] = false;
         });
 
         window.addEventListener('resize', () => {
@@ -452,7 +471,26 @@ void main() {
         const clock = new THREE.Clock();
         (function animate() {
             requestAnimationFrame(animate);
+            const dt = clock.getDelta();
             uniforms.iTime.value = clock.getElapsedTime();
+
+            // ---- WASD Movement ----
+            const moveSpeed = 5.0 * dt;
+            const m = uniforms.iMouse.value;
+            const yaw = - (m.x / window.innerWidth) * 12.5662 - 1.5707;
+            
+            // Forward is defined as the direction from camera to target (ta - ro)
+            // Since ro = ta + camDist*vec3(cos, sin), ta - ro = -vec3(cos, sin)
+            const forward = new THREE.Vector3(-Math.cos(yaw), 0, -Math.sin(yaw));
+            const right = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), forward).normalize();
+
+            let moved = false;
+            if (keys.w) { uniforms.iCameraPos.value.addScaledVector(forward, moveSpeed); moved = true; }
+            if (keys.s) { uniforms.iCameraPos.value.addScaledVector(forward, -moveSpeed); moved = true; }
+            if (keys.a) { uniforms.iCameraPos.value.addScaledVector(right, -moveSpeed); moved = true; }
+            if (keys.d) { uniforms.iCameraPos.value.addScaledVector(right, moveSpeed); moved = true; }
+
+            if (moved) frameIdx = 0; // Reset temporal accumulation on move
 
             if (temporalOn) {
                 // Sub-pixel Halton jitter (8-frame cycle)
