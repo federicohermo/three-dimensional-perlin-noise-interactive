@@ -43,3 +43,8 @@ Shadertoy-style 3D Perlin noise raymarcher ported to Three.js.
 - **Persistent State Storage**: Created `shadertoy_bufferA.glsl` to accumulate mouse deltas and store yaw/pitch in a feedback loop.
 - **Integrated Mathematical Common**: Extracted all SDF and Raymarching logic into `shadertoy_common.glsl` to avoid duplication across tabs.
 - **Final Cleanup**: Removed redundant intermediate files and verified cross-platform consistency.
+
+### Session 8: Vertical Layout Adjustment
+- **Elevated Sphere & Camera**: Shifted the primary sphere and camera baseline from $y=1$ to $y=6$ to provide a clearer view of the terrain.
+- **Synchronized Plane Height**: Unified the ground plane baseline at $y=4$ across the Three.js host and all Shadertoy tabs for visual consistency.
+- **Fixed Standalone Shader**: Corrected parameter mismatches in `perlin3d_fixed.glsl` that were causing compilation errors in the "fixed" reference file.

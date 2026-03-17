@@ -229,7 +229,7 @@ float sdBox(vec3 p, vec3 r, float e)
 // The SDF values are scaled down (sphere ×0.8, plane ×0.4) because noise
 // displacement breaks the Lipschitz-1 property of true
 float GetDist(vec3 p, float organicDetail) {
-    float camDist = length(p - vec3(0., 1., 0.));
+    float camDist = length(p - vec3(0., 6., 4.));
     float oct = 1.0;
     oct += 2.0 * (1.0 - smoothstep(15.0, 40.0, camDist)); 
     
@@ -237,25 +237,29 @@ float GetDist(vec3 p, float organicDetail) {
     float nearMask = (1.0 - smoothstep(5.0, 15.0, camDist));
     oct += nearMask * organicDetail; 
     
-    vec4 sphere = vec4(0, 1, 4 ,1.1);
+    vec4 sphere = vec4(0, 6, 4 ,1.1);
     float baseSphereDist = length(p - sphere.xyz) - sphere.w;
     float sphereDist = (baseSphereDist < 2.5) ? baseSphereDist + 1.1*Noise(p, oct) - 1.1 : baseSphereDist - 1.1;
     sphereDist *= 0.85;
 
-    float basePlaneDist = p.y;
+    float basePlaneDist = p.y - 4.0;
     float planeDist = (basePlaneDist < 12.0) ? basePlaneDist + 8.0*Noise(p*.125, oct) - 1.1*Noise(p*.25, oct) : basePlaneDist - 1.1;
-    planeDist *= 0.43;
+    planeDist *= 0.4; // Reduced relaxation for stability on steep slopes
 
     return min(sphereDist, planeDist);
 }
 
 // ---- Raymarcher ----
-float RayMarch (vec3 ro, vec3 rd, float organicDetail) {
-    float dO = 0.;
+float RayMarch (vec3 ro, vec3 rd, float organicDetail, vec2 fragCoord) {
+    // Ray-start dither: converts geometric banding into high-frequency noise
+    // This is later smoothed out by temporal accumulation ('T' key).
+    float dO = 0.001 * Hash(vec3(fragCoord, iTime)); 
+    
     for(int i=0; i <MAX_STEPS; i++) {
         float ds = GetDist(ro + dO * rd, organicDetail);
+        // Reduced distance threshold slope for landing precision
+        if(ds < SURFACE_DIST + dO * 0.0005 || dO > MAX_DIST) break;
         dO += ds;
-        if(ds < SURFACE_DIST + dO * 0.002 || dO > MAX_DIST) break;
     }
     return (dO > MAX_DIST) ? -1. : dO;
 }
@@ -269,13 +273,13 @@ vec3 GetNormal(vec3 p, float organicDetail) {
 // ---- Soft shadows ----
 float CastShadow(vec3 ro, vec3 rd, float tmin, float tmax, float k, float organicDetail) {
     float res = 1.0; float t = tmin;
-    for (int i = 0; i < 32; i++) {
+    for (int i = 0; i < 48; i++) { // Increased steps
         if(t >= tmax) break;
         float h = GetDist(ro + t*rd, organicDetail);
         if (h < SURFACE_DIST) return 0.0;
         res = min(res, k * h / t);
         if (res < 0.001) break;
-        t += clamp(h, 0.02, 0.25);
+        t += clamp(h, 0.005, 0.25); // Smaller min step for detail
     }
     return clamp(res, 0.0, 1.0);
 }
@@ -293,17 +297,17 @@ float CastShadow(vec3 ro, vec3 rd, float tmin, float tmax, float k, float organi
 // Shadow ray is offset 0.05 along the normal to avoid self-intersection
 // artifacts ("shadow acne") on the bumpy noise-displaced surface.
 
-float GetLight(vec3 p)
+float GetLight(vec3 p, float organicDetail)
 {
     // Fixed light position
-    vec3 lightPos = vec3(-5.0, 5.0, -1.0);
+    vec3 lightPos = vec3(-5.0, 10.0, -1.0);
     vec3 l = normalize(lightPos - p);                   // Direction to light
-    vec3 n = GetNormal(p);                              // Surface normal
+    vec3 n = GetNormal(p, organicDetail);                // Surface normal
 
     float diff = clamp(dot(n, l), 0., 1.)*0.5;    // Half-Lambert diffuse
 
     // Shadow ray: offset origin along normal to clear the bumpy surface
-    float shadow = CastShadow(p + n * 0.1, l, 0.02, 8.5, 8.0);
+    float shadow = CastShadow(p + n * 0.1, l, 0.02, 8.5, 8.0, organicDetail);
 
     float amb = clamp(dot(n, vec3(0., 1., 0.)), 0., 1.);    // Hemispherical ambient
     float aer = clamp(dot(n, -l), 0., 1.);                   // Backlight / aerial
@@ -329,7 +333,7 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     // Camera setup (orbital using iMouse)
     vec2 m = iMouse.xy / iResolution.xy;
 
-    vec3 ta = vec3(0.0, 1.0, 4.0);    // Target: center of the sphere
+    vec3 ta = vec3(0.0, 6.0, 4.0);    // Target: center of the sphere
     float camDist = 4.0;              // Orbit radius
     
     // Relaxed Clamping logic
@@ -356,11 +360,15 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     // Ray direction (0.5 acts as zoom/FOV scalar matching original)
     vec3 rd = normalize(uv.x * cu + uv.y * cv + 0.5 * cw);
 
-    float d = RayMarch(ro, rd);
+    // Optimized & Simplified: Fast sine-based organic detail pre-calculation
+    float oD = sin(ro.x*0.13 + ro.z*0.21)*0.5 + sin(ro.z*0.17 - ro.x*0.11)*0.5;
+    float organicDetail = clamp(oD + 0.5, 0.0, 1.0);
+
+    float d = RayMarch(ro, rd, organicDetail, fragCoord);
     if(d > 0.0)
     {
         vec3 p = ro + rd * d;      // Surface hit point
-        float diff = GetLight(p);  // Compute illumination
+        float diff = GetLight(p, organicDetail);  // Compute illumination
         col = vec3(diff);          // Grayscale output
     }
 

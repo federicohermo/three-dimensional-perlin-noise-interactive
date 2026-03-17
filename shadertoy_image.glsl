@@ -16,7 +16,7 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     float yaw = state.x;
     float pitch = state.y;
     
-    vec3 ta = vec3(0.0, 1.0, 4.0);
+    vec3 ta = vec3(0.0, 6.0, 4.0);
     float camDist = 4.0;
     
     vec3 ro = ta + vec3(

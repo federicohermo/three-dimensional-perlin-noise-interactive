@@ -44,7 +44,7 @@ float Noise(vec3 p, float octaves) {
 
 // ---- Scene SDF ----
 float GetDist(vec3 p, float organicDetail) {
-    float camDist = length(p - vec3(0., 1., 0.));
+    float camDist = length(p - vec3(0., 6., 4.));
     float oct = 1.0;
     oct += 2.0 * (1.0 - smoothstep(15.0, 40.0, camDist)); // Transitions to 3 octaves
     
@@ -52,11 +52,11 @@ float GetDist(vec3 p, float organicDetail) {
     float nearMask = (1.0 - smoothstep(5.0, 15.0, camDist));
     oct += nearMask * organicDetail; 
     
-    vec4 sphere = vec4(0, 1, 4 ,1.1);
+    vec4 sphere = vec4(0, 6, 4 ,1.1);
     float baseSphereDist = length(p - sphere.xyz) - sphere.w;
     float sphereDist = (baseSphereDist < 2.5) ? baseSphereDist + 1.1*Noise(p, oct) - 1.1 : baseSphereDist - 1.1;
     sphereDist *= 0.85;
-    float basePlaneDist = p.y;
+    float basePlaneDist = p.y - 4.0;
     float planeDist = (basePlaneDist < 12.0) ? basePlaneDist + 8.0*Noise(p*.125, oct) - 1.1*Noise(p*.25, oct) : basePlaneDist - 1.1;
     planeDist *= 0.43;
     return min(sphereDist, planeDist);
@@ -94,7 +94,7 @@ float CastShadow(vec3 ro, vec3 rd, float tmin, float tmax, float k, float organi
 
 // ---- Lighting ----
 float GetLight(vec3 p, float organicDetail) {
-    vec3 lightPos = vec3(-5.0, 5.0, -1.0);
+    vec3 lightPos = vec3(-5.0, 10.0, -1.0);
     vec3 l = normalize(lightPos - p); vec3 n = GetNormal(p, organicDetail);
     float diff = clamp(dot(n, l), 0., 1.)*0.5;
     float shadow = CastShadow(p + n * 0.1, l, 0.02, 8.5, 8.0, organicDetail);

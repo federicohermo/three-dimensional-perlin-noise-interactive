@@ -79,9 +79,9 @@ vec3 rotateXY(vec3 pos, float angle)
 
 // ---- Raymarching constants -------------------------------------------------
 
-#define MAX_STEPS 80           // Reduced from 100 for performance boost
-#define MAX_DIST 50.           // Maximum ray travel distance (world units)
-#define SURFACE_DIST .001      // Hit threshold
+#define MAX_STEPS 100
+#define MAX_DIST 50.
+#define SURFACE_DIST .001
 
 // ---- Hashing ---------------------------------------------------------------
 
@@ -212,55 +212,104 @@ float GetDist(vec3 p, float organicDetail) {
     float sphereDist = (baseSphereDist < 2.5) ? baseSphereDist + 1.1*Noise(p - iCameraPos, oct) - 1.1 : baseSphereDist - 1.1;
     sphereDist *= 0.85;
 
-    float basePlaneDist = p.y;
+    float basePlaneDist = p.y - 6.0;
     // Plane noise remains in world space for a "traveling" effect
-    float planeDist = (basePlaneDist < 12.0) ? basePlaneDist + 8.0*Noise(p*.125, oct) - 1.1*Noise(p*.25, oct) : basePlaneDist - 1.1;
-    planeDist *= 0.43;
+    // Added a small +0.1 bias to noise to keep surface slightly above y=0 on average
+    float planeDist = (basePlaneDist < 12.0) ? basePlaneDist + 8.1*Noise(p*.125, oct) - 1.1*Noise(p*.25, oct) + 0.1 : basePlaneDist - 1.1;
+    planeDist *= 0.4; // Reduced relaxation for stability on steep slopes
 
     return min(sphereDist, planeDist);
 }
 
 // ---- Raymarcher ----
-float RayMarch (vec3 ro, vec3 rd, float organicDetail) {
-    float dO = 0.;
+float RayMarch (vec3 ro, vec3 rd, float organicDetail, vec2 fragCoord) {
+    // Ray-start dither: converts geometric banding into high-frequency noise
+    // This is later smoothed out by temporal accumulation ('T' key).
+    float dO = 0.001 * Hash(vec3(fragCoord, iTime)); 
+    
     for(int i=0; i <MAX_STEPS; i++) {
         float ds = GetDist(ro + dO * rd, organicDetail);
+        // Reduced distance threshold slope for landing precision
+        if(ds < SURFACE_DIST + dO * 0.0005 || dO > MAX_DIST) break;
         dO += ds;
-        if(ds < SURFACE_DIST + dO * 0.002 || dO > MAX_DIST) break;
     }
     return (dO > MAX_DIST) ? -1. : dO;
 }
 
 // ---- Normal calculation ----
 vec3 GetNormal(vec3 p, float organicDetail) {
-    float h = 0.005; vec2 k = vec2(1, -1);
+    float h = 0.007; // Reverted for smoothness
+    vec2 k = vec2(1, -1);
     return normalize(k.xyy*GetDist(p + k.xyy*h, organicDetail) + k.yxy*GetDist(p + k.yxy*h, organicDetail) + k.yyx*GetDist(p + k.yyx*h, organicDetail) + k.xxx*GetDist(p + k.xxx*h, organicDetail));
+}
+
+// ---- Aesthetics -----------------------------------------------------------
+vec3 GetSky(vec3 rd) {
+    float sun = max(0.0, dot(rd, normalize(vec3(-5.0, 5.0, -1.0))));
+    vec3 col = mix(vec3(0.3, 0.45, 0.6), vec3(0.05, 0.15, 0.3), rd.y * 0.5 + 0.5); // Sky gradient
+    
+    // Horizon haze: whiten near rd.y = 0
+    float haze = exp(-10.0 * abs(rd.y));
+    col = mix(col, vec3(0.8, 0.85, 0.9), haze * 0.5);
+    
+    col += vec3(1.0, 0.8, 0.4) * pow(sun, 64.0); // Sun disk
+    col += vec3(1.0, 0.9, 0.7) * pow(sun, 8.0) * 0.2; // Sun glow
+    return col;
 }
 
 // ---- Soft shadows ----
 float CastShadow(vec3 ro, vec3 rd, float tmin, float tmax, float k, float organicDetail) {
     float res = 1.0; float t = tmin;
-    for (int i = 0; i < 32; i++) {
+    for (int i = 0; i < 48; i++) { // Increased steps
         if(t >= tmax) break;
         float h = GetDist(ro + t*rd, organicDetail);
         if (h < SURFACE_DIST) return 0.0;
         res = min(res, k * h / t);
         if (res < 0.001) break;
-        t += clamp(h, 0.02, 0.25);
+        t += clamp(h, 0.005, 0.25); // Smaller min step for detail
     }
     return clamp(res, 0.0, 1.0);
 }
 
+float GetAO(vec3 p, vec3 n, float organicDetail) {
+    float occ = 0.0;
+    float sca = 1.0;
+    for (int i = 0; i < 5; i++) {
+        float h = 0.01 + 0.12 * float(i) / 4.0;
+        float d = GetDist(p + n * h, organicDetail);
+        occ += (h - d) * sca;
+        sca *= 0.95;
+    }
+    return clamp(1.0 - 3.0 * occ, 0.0, 1.0);
+}
+
 // ---- Lighting ----
-float GetLight(vec3 p, float organicDetail) {
-    vec3 lightPos = vec3(-5.0, 5.0, -1.0);
+vec3 GetLight(vec3 p, float organicDetail, vec3 rd) {
+    vec3 lightPos = vec3(-5.0, 10.0, -1.0);
     vec3 l = normalize(lightPos - p);
     vec3 n = GetNormal(p, organicDetail);
-    float diff = clamp(dot(n, l), 0., 1.)*0.5;
-    float shadow = CastShadow(p + n * 0.1, l, 0.02, 8.5, 8.0, organicDetail);
-    float amb = clamp(dot(n, vec3(0., 1., 0.)), 0., 1.);
-    float aer = clamp(dot(n, -l), 0., 1.);
-    return diff*(shadow + amb*0.05) + aer*.007;
+    
+    // Direct lighting (diffuse + soft shadow)
+    float diff = clamp(dot(n, l), 0., 1.);
+    float shadow = CastShadow(p + n * 0.1, l, 0.02, 12.0, 8.0, organicDetail);
+    vec3 col = vec3(1.0, 0.9, 0.8) * diff * shadow;
+
+    // Cheap GI Approximation (Hemisphere Lighting)
+    float sca = clamp(0.5 + 0.5 * n.y, 0.0, 1.0);
+    vec3 skyCol = vec3(0.2, 0.5, 1.0) * sca; // Sky bounce
+    vec3 gndCol = vec3(0.1, 0.05, 0.02) * (1.0 - sca); // Ground bounce
+    col += (skyCol + gndCol) * 0.2;
+
+    // Ambient Occlusion
+    float ao = GetAO(p, n, organicDetail);
+    col *= ao;
+
+    // Specular (Roughness approximation)
+    vec3 h = normalize(l - rd);
+    float spec = pow(clamp(dot(n, h), 0.0, 1.0), 32.0);
+    col += vec3(0.3) * spec * shadow * ao;
+
+    return col;
 }
 
 void mainImage( out vec4 fragColor, in vec2 fragCoord )
@@ -292,12 +341,21 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     float oD = sin(ro.x*0.13 + ro.z*0.21)*0.5 + sin(ro.z*0.17 - ro.x*0.11)*0.5;
     float organicDetail = clamp(oD + 0.5, 0.0, 1.0);
 
-    float d = RayMarch(ro, rd, organicDetail);
+    float d = RayMarch(ro, rd, organicDetail, fragCoord);
     if(d > 0.0) {
         vec3 p = ro + rd * d;
-        col = vec3(GetLight(p, organicDetail));
+        col = GetLight(p, organicDetail, rd);
+        
+        // Aerial Perspective (Fog) - Distance masked to keep character clear
+        float fog = 1.0 - exp(-0.05 * max(0.0, d - 6.0));
+        col = mix(col, GetSky(rd), fog);
+    } else {
+        col = GetSky(rd);
     }
-    fragColor = vec4(pow(col, vec3(0.4545)), 1.0);
+    
+    // Grading
+    col = pow(col, vec3(0.4545)); // Gamma correction
+    fragColor = vec4(col, 1.0);
 }
 
 void main() {
@@ -325,7 +383,7 @@ void main() {
             iResolution: { value: new THREE.Vector3(window.innerWidth, window.innerHeight, 1.0) },
             iMouse: { value: new THREE.Vector4(window.innerWidth * 0.25, window.innerHeight * 0.5, 0, 0) },
             iJitter: { value: new THREE.Vector2(0, 0) },
-            iCameraPos: { value: new THREE.Vector3(0.0, 1.0, 4.0) }
+            iCameraPos: { value: new THREE.Vector3(0.0, 6.0, 4.0) }
         };
 
         const material = new THREE.ShaderMaterial({
@@ -478,7 +536,7 @@ void main() {
             const moveSpeed = 5.0 * dt;
             const m = uniforms.iMouse.value;
             const yaw = - (m.x / window.innerWidth) * 12.5662 - 1.5707;
-            
+
             // Forward is defined as the direction from camera to target (ta - ro)
             // Since ro = ta + camDist*vec3(cos, sin), ta - ro = -vec3(cos, sin)
             const forward = new THREE.Vector3(-Math.cos(yaw), 0, -Math.sin(yaw));
