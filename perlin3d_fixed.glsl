@@ -251,14 +251,14 @@ float GetDist(vec3 p, float organicDetail) {
 
 // ---- Raymarcher ----
 float RayMarch (vec3 ro, vec3 rd, float organicDetail, vec2 fragCoord) {
-    // Ray-start dither: converts geometric banding into high-frequency noise
-    // This is later smoothed out by temporal accumulation ('T' key).
+    // Initial dither to break up banding
     float dO = 0.001 * Hash(vec3(fragCoord, iTime)); 
     
     for(int i=0; i <MAX_STEPS; i++) {
         float ds = GetDist(ro + dO * rd, organicDetail);
-        // Reduced distance threshold slope for landing precision
-        if(ds < SURFACE_DIST + dO * 0.0005 || dO > MAX_DIST) break;
+        // LOD: Relax threshold slightly with distance for faster convergence
+        float threshold = SURFACE_DIST + dO * (dO < 10.0 ? 0.0005 : 0.001);
+        if(ds < threshold || dO > MAX_DIST) break;
         dO += ds;
     }
     return (dO > MAX_DIST) ? -1. : dO;
@@ -271,15 +271,20 @@ vec3 GetNormal(vec3 p, float organicDetail) {
 }
 
 // ---- Soft shadows ----
-float CastShadow(vec3 ro, vec3 rd, float tmin, float tmax, float k, float organicDetail) {
+float CastShadow(vec3 ro, vec3 rd, float tmin, float tmax, float k, float organicDetail, float distToCam) {
     float res = 1.0; float t = tmin;
-    for (int i = 0; i < 48; i++) { // Increased steps
-        if(t >= tmax) break;
+    // LOD: Fewer steps and shorter range for distant points
+    int steps = (distToCam < 12.0) ? 48 : 24;
+    tmax = (distToCam < 12.0) ? tmax : min(tmax, 6.0);
+
+    for (int i = 0; i < 48; i++) { // Uniform loop for compiler; use 'steps' break
+        if(i >= steps || t >= tmax) break;
         float h = GetDist(ro + t*rd, organicDetail);
         if (h < SURFACE_DIST) return 0.0;
         res = min(res, k * h / t);
-        if (res < 0.001) break;
-        t += clamp(h, 0.005, 0.25); // Smaller min step for detail
+        if (res < 0.005) break; // Aggressive early exit for performance
+        // Relax min step for distant points
+        t += clamp(h, (distToCam < 12.0 ? 0.005 : 0.01), 0.25);
     }
     return clamp(res, 0.0, 1.0);
 }
@@ -297,7 +302,7 @@ float CastShadow(vec3 ro, vec3 rd, float tmin, float tmax, float k, float organi
 // Shadow ray is offset 0.05 along the normal to avoid self-intersection
 // artifacts ("shadow acne") on the bumpy noise-displaced surface.
 
-float GetLight(vec3 p, float organicDetail)
+float GetLight(vec3 p, float organicDetail, vec3 ro)
 {
     // Fixed light position
     vec3 lightPos = vec3(-5.0, 10.0, -1.0);
@@ -305,9 +310,11 @@ float GetLight(vec3 p, float organicDetail)
     vec3 n = GetNormal(p, organicDetail);                // Surface normal
 
     float diff = clamp(dot(n, l), 0., 1.)*0.5;    // Half-Lambert diffuse
-
+    
+    float distToCam = length(p - ro); 
+    
     // Shadow ray: offset origin along normal to clear the bumpy surface
-    float shadow = CastShadow(p + n * 0.1, l, 0.02, 8.5, 8.0, organicDetail);
+    float shadow = CastShadow(p + n * 0.1, l, 0.02, 8.5, 8.0, organicDetail, distToCam);
 
     float amb = clamp(dot(n, vec3(0., 1., 0.)), 0., 1.);    // Hemispherical ambient
     float aer = clamp(dot(n, -l), 0., 1.);                   // Backlight / aerial
@@ -368,7 +375,7 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     if(d > 0.0)
     {
         vec3 p = ro + rd * d;      // Surface hit point
-        float diff = GetLight(p, organicDetail);  // Compute illumination
+        float diff = GetLight(p, organicDetail, ro);  // Compute illumination
         col = vec3(diff);          // Grayscale output
     }
 

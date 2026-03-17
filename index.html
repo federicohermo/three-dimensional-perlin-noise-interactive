@@ -205,12 +205,12 @@ float GetDist(vec3 p, float organicDetail) {
     oct += nearMask * organicDetail; 
     
     // Sphere FOLLOWS iCameraPos (Third-person character feel)
-    vec4 sphere = vec4(iCameraPos, 1.1);
+    vec4 sphere = vec4(iCameraPos, 0.8);
     float baseSphereDist = length(p - sphere.xyz) - sphere.w;
     
     // Noise is sampled in LOCAL SPACE (p - iCameraPos) to prevent displacement swimming
     float sphereDist = (baseSphereDist < 2.5) ? baseSphereDist + 1.1*Noise(p - iCameraPos, oct) - 1.1 : baseSphereDist - 1.1;
-    sphereDist *= 0.85;
+    sphereDist *= 0.45;
 
     float basePlaneDist = p.y - 6.0;
     // Plane noise remains in world space for a "traveling" effect
@@ -223,14 +223,14 @@ float GetDist(vec3 p, float organicDetail) {
 
 // ---- Raymarcher ----
 float RayMarch (vec3 ro, vec3 rd, float organicDetail, vec2 fragCoord) {
-    // Ray-start dither: converts geometric banding into high-frequency noise
-    // This is later smoothed out by temporal accumulation ('T' key).
+    // Initial dither to break up banding
     float dO = 0.001 * Hash(vec3(fragCoord, iTime)); 
     
     for(int i=0; i <MAX_STEPS; i++) {
         float ds = GetDist(ro + dO * rd, organicDetail);
-        // Reduced distance threshold slope for landing precision
-        if(ds < SURFACE_DIST + dO * 0.0005 || dO > MAX_DIST) break;
+        // LOD: Relax threshold slightly with distance for faster convergence
+        float threshold = SURFACE_DIST + dO * (dO < 10.0 ? 0.0005 : 0.001);
+        if(ds < threshold || dO > MAX_DIST) break;
         dO += ds;
     }
     return (dO > MAX_DIST) ? -1. : dO;
@@ -258,15 +258,20 @@ vec3 GetSky(vec3 rd) {
 }
 
 // ---- Soft shadows ----
-float CastShadow(vec3 ro, vec3 rd, float tmin, float tmax, float k, float organicDetail) {
+float CastShadow(vec3 ro, vec3 rd, float tmin, float tmax, float k, float organicDetail, float distToCam) {
     float res = 1.0; float t = tmin;
-    for (int i = 0; i < 48; i++) { // Increased steps
-        if(t >= tmax) break;
+    // LOD: Fewer steps and shorter range for distant points
+    int steps = (distToCam < 12.0) ? 48 : 24;
+    tmax = (distToCam < 12.0) ? tmax : min(tmax, 6.0);
+    
+    for (int i = 0; i < 48; i++) { // Uniform loop for compiler; use 'steps' break
+        if(i >= steps || t >= tmax) break;
         float h = GetDist(ro + t*rd, organicDetail);
         if (h < SURFACE_DIST) return 0.0;
         res = min(res, k * h / t);
-        if (res < 0.001) break;
-        t += clamp(h, 0.005, 0.25); // Smaller min step for detail
+        if (res < 0.005) break; // Aggressive early exit for performance
+        // Relax min step for distant points
+        t += clamp(h, (distToCam < 12.0 ? 0.005 : 0.01), 0.25);
     }
     return clamp(res, 0.0, 1.0);
 }
@@ -285,13 +290,14 @@ float GetAO(vec3 p, vec3 n, float organicDetail) {
 
 // ---- Lighting ----
 vec3 GetLight(vec3 p, float organicDetail, vec3 rd) {
-    vec3 lightPos = vec3(-5.0, 10.0, -1.0);
+    vec3 lightPos = vec3(-5.0, 15.0, -1.0);
     vec3 l = normalize(lightPos - p);
     vec3 n = GetNormal(p, organicDetail);
     
     // Direct lighting (diffuse + soft shadow)
     float diff = clamp(dot(n, l), 0., 1.);
-    float shadow = CastShadow(p + n * 0.1, l, 0.02, 12.0, 8.0, organicDetail);
+    float distToCam = length(p - iCameraPos);
+    float shadow = CastShadow(p + n * 0.1, l, 0.02, 12.0, 8.0, organicDetail, distToCam);
     vec3 col = vec3(1.0, 0.9, 0.8) * diff * shadow;
 
     // Cheap GI Approximation (Hemisphere Lighting)
@@ -383,7 +389,7 @@ void main() {
             iResolution: { value: new THREE.Vector3(window.innerWidth, window.innerHeight, 1.0) },
             iMouse: { value: new THREE.Vector4(window.innerWidth * 0.25, window.innerHeight * 0.5, 0, 0) },
             iJitter: { value: new THREE.Vector2(0, 0) },
-            iCameraPos: { value: new THREE.Vector3(0.0, 6.0, 4.0) }
+            iCameraPos: { value: new THREE.Vector3(0.0, 8.0, 4.0) }
         };
 
         const material = new THREE.ShaderMaterial({
