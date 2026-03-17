@@ -42,6 +42,13 @@ float Noise(vec3 p, float octaves) {
     return value / max(0.0001, normalize_factor);
 }
 
+// ---- Smooth Minimum ----
+float smin( float a, float b, float k )
+{
+    float h = clamp( 0.5+0.5*(b-a)/k, 0.0, 1.0 );
+    return mix( b, a, h ) - k*h*(1.0-h);
+}
+
 // ---- Scene SDF ----
 float GetDist(vec3 p, float organicDetail) {
     float camDist = length(p - vec3(0., 6., 4.));
@@ -52,14 +59,27 @@ float GetDist(vec3 p, float organicDetail) {
     float nearMask = (1.0 - smoothstep(5.0, 15.0, camDist));
     oct += nearMask * organicDetail; 
     
+    // Character Sphere
     vec4 sphere = vec4(0, 6, 4 ,1.1);
     float baseSphereDist = length(p - sphere.xyz) - sphere.w;
     float sphereDist = (baseSphereDist < 2.5) ? baseSphereDist + 1.1*Noise(p, oct) - 1.1 : baseSphereDist - 1.1;
     sphereDist *= 0.85;
+
+    // Infinite Spheres (Domain Repetition)
+    // Offset slightly so they don't perfectly overlap the origin sphere initially
+    vec3 pRep = p - vec3(5.0, 7.5, 5.0); 
+    pRep.xz = mod(pRep.xz + 7.5, 15.0) - 7.5; // XZ repetition
+    float repSphereDist = length(pRep) - 0.6;
+    
+    // Smoothly combine spheres
+    // Reduced k from 1.2 to 0.4 for tighter blending/less premature interaction
+    float spheres = smin(sphereDist, repSphereDist, 0.4);
+
     float basePlaneDist = p.y - 4.0;
     float planeDist = (basePlaneDist < 12.0) ? basePlaneDist + 8.0*Noise(p*.125, oct) - 1.1*Noise(p*.25, oct) : basePlaneDist - 1.1;
     planeDist *= 0.43;
-    return min(sphereDist, planeDist);
+    
+    return min(spheres, planeDist);
 }
 
 // ---- Raymarcher ----

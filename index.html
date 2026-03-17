@@ -194,6 +194,13 @@ float sdBox(vec3 p, vec3 r, float e)
 }
 
 
+// ---- Smooth Minimum ----
+float smin( float a, float b, float k )
+{
+    float h = clamp( 0.5+0.5*(b-a)/k, 0.0, 1.0 );
+    return mix( b, a, h ) - k*h*(1.0-h);
+}
+
 // ---- Scene SDF -------------------------------------------------------------
 float GetDist(vec3 p, float organicDetail) {
     float camDist = length(p - iCameraPos);
@@ -212,13 +219,23 @@ float GetDist(vec3 p, float organicDetail) {
     float sphereDist = (baseSphereDist < 2.5) ? baseSphereDist + 1.1*Noise(p - iCameraPos, oct) - 1.1 : baseSphereDist - 1.1;
     sphereDist *= 0.45;
 
+    // Infinite Spheres (Domain Repetition)
+    // Offset slightly so they don't perfectly overlap the origin sphere initially
+    vec3 pRep = p - vec3(5.0, 0.0, 5.0); 
+    pRep.xz = mod(pRep.xz + 7.5, 15.0) - 7.5;
+    pRep.y -= 7.5; // Elevated to y=7.5 (1.5 units above plane)
+    float repSphereDist = length(pRep) - 0.6;
+    
+    // Smoothly combine character sphere with repeated spheres
+    // Reduced k from 1.2 to 0.4 for tighter blending/less premature interaction
+    float spheres = smin(sphereDist, repSphereDist, 0.4);
+
     float basePlaneDist = p.y - 6.0;
     // Plane noise remains in world space for a "traveling" effect
-    // Added a small +0.1 bias to noise to keep surface slightly above y=0 on average
     float planeDist = (basePlaneDist < 12.0) ? basePlaneDist + 8.1*Noise(p*.125, oct) - 1.1*Noise(p*.25, oct) + 0.1 : basePlaneDist - 1.1;
-    planeDist *= 0.4; // Reduced relaxation for stability on steep slopes
+    planeDist *= 0.4; 
 
-    return min(sphereDist, planeDist);
+    return min(spheres, planeDist);
 }
 
 // ---- Raymarcher ----

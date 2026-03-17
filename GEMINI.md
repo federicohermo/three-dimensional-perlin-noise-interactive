@@ -48,3 +48,8 @@ Shadertoy-style 3D Perlin noise raymarcher ported to Three.js.
 - **Elevated Sphere & Camera**: Shifted the primary sphere and camera baseline from $y=1$ to $y=6$ to provide a clearer view of the terrain.
 - **Synchronized Plane Height**: Unified the ground plane baseline at $y=4$ across the Three.js host and all Shadertoy tabs for visual consistency.
 - **Fixed Standalone Shader**: Corrected parameter mismatches in `perlin3d_fixed.glsl` that were causing compilation errors in the "fixed" reference file.
+
+### Session 9: Infinite Spheres & Smoothmin
+- **Smooth Minimum Implementation**: Added a polynomial `smin` function to `shadertoy_common.glsl`, `index.html`, and `perlin3d_fixed.glsl` for organic blending between surfaces.
+- **Domain Repetition**: Implemented XZ-plane domain repetition for a grid of infinite spheres.
+- **Blobby Interaction**: Combined the character-following sphere with the repeated infinite spheres using `smin`, creating a "metaball" style connection when they overlap.
