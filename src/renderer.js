@@ -1,11 +1,29 @@
 import {
     WebGLRenderer, OrthographicCamera, Scene, ShaderMaterial,
     PlaneGeometry, Mesh, WebGLRenderTarget,
-    LinearFilter, RGBAFormat, UnsignedByteType
+    LinearFilter, RGBAFormat, UnsignedByteType, Vector3 as V3
 } from 'three';
 import { vertexShader, fragmentShader, blitFragmentShader } from './shaders.js';
 import { uniforms } from './uniforms.js';
 import { halton } from './temporal.js';
+
+// ---- Resolution scale (Tier 3 optimization) --------------------------------
+const SCALES = [0.5, 0.75, 1.0];
+let scaleIdx = 0;
+export let renderScale = SCALES[scaleIdx];
+
+export function cycleRenderScale() {
+    scaleIdx = (scaleIdx + 1) % SCALES.length;
+    renderScale = SCALES[scaleIdx];
+    const w = window.innerWidth, h = window.innerHeight;
+    const rw = Math.max(1, Math.floor(w * renderScale));
+    const rh = Math.max(1, Math.floor(h * renderScale));
+    rtScene.setSize(rw, rh);
+    rtHistA.setSize(rw, rh);
+    rtHistB.setSize(rw, rh);
+    uniforms.iResolution.value.set(rw, rh, 1.0);
+    return renderScale;
+}
 
 // ---- WebGL renderer --------------------------------------------------------
 export const renderer = new WebGLRenderer();
@@ -30,11 +48,20 @@ function makeRT(w, h) {
     });
 }
 
-let rtScene = makeRT(window.innerWidth, window.innerHeight);  // current frame
-let rtHistA = makeRT(window.innerWidth, window.innerHeight);  // history ping
-let rtHistB = makeRT(window.innerWidth, window.innerHeight);  // history pong
+function scaledSize() {
+    return [
+        Math.max(1, Math.floor(window.innerWidth * renderScale)),
+        Math.max(1, Math.floor(window.innerHeight * renderScale)),
+    ];
+}
+
+const [initW, initH] = scaledSize();
+let rtScene = makeRT(initW, initH);  // current frame
+let rtHistA = makeRT(initW, initH);  // history ping
+let rtHistB = makeRT(initW, initH);  // history pong
 
 // ---- Blit scene (blends current frame with history) ------------------------
+const blitResolution = new V3(initW, initH, 1.0); // own resolution, updated per-pass
 const blitMaterial = new ShaderMaterial({
     vertexShader,
     fragmentShader: blitFragmentShader,
@@ -42,7 +69,7 @@ const blitMaterial = new ShaderMaterial({
         tCurrent:    { value: null },
         tHistory:    { value: null },
         uBlend:      { value: 0.12 },
-        iResolution: uniforms.iResolution,  // shared reference
+        iResolution: { value: blitResolution },  // decoupled from main shader
     },
 });
 const blitScene = new Scene();
@@ -50,6 +77,12 @@ blitScene.add(new Mesh(new PlaneGeometry(2, 2), blitMaterial));
 
 // ---- render() — encapsulates the full ping-pong blit logic -----------------
 export function render(temporalOn, frameIdx) {
+    // Pre-compute scaled and full resolutions for blit passes
+    const rw = uniforms.iResolution.value.x;
+    const rh = uniforms.iResolution.value.y;
+    const fw = window.innerWidth;
+    const fh = window.innerHeight;
+
     if (temporalOn) {
         // Sub-pixel Halton jitter (8-frame cycle)
         const ji = (frameIdx % 8) + 1;
@@ -59,32 +92,49 @@ export function render(temporalOn, frameIdx) {
         const histRead  = (frameIdx % 2 === 0) ? rtHistA : rtHistB;
         const histWrite = (frameIdx % 2 === 0) ? rtHistB : rtHistA;
 
-        // 1. Render current frame to scene RT
+        // 1. Render current frame to scene RT (scaled resolution)
         renderer.setRenderTarget(rtScene);
         renderer.render(scene, camera);
 
-        // 2. Blend current + history → histWrite
+        // 2. Blend current + history → histWrite (scaled resolution)
+        blitResolution.set(rw, rh, 1.0);
         blitMaterial.uniforms.tCurrent.value = rtScene.texture;
         blitMaterial.uniforms.tHistory.value = histRead.texture;
         blitMaterial.uniforms.uBlend.value   = frameIdx === 0 ? 1.0 : 0.12;
         renderer.setRenderTarget(histWrite);
         renderer.render(blitScene, camera);
 
-        // 3. Display histWrite to screen
+        // 3. Display histWrite to screen (full resolution)
+        blitResolution.set(fw, fh, 1.0);
         blitMaterial.uniforms.tCurrent.value = histWrite.texture;
         blitMaterial.uniforms.uBlend.value   = 1.0;  // passthrough
         renderer.setRenderTarget(null);
         renderer.render(blitScene, camera);
     } else {
         uniforms.iJitter.value.set(0, 0);
-        renderer.setRenderTarget(null);
-        renderer.render(scene, camera);
+        if (renderScale < 1.0) {
+            // Render to scaled RT, then blit to screen
+            renderer.setRenderTarget(rtScene);
+            renderer.render(scene, camera);
+
+            blitResolution.set(fw, fh, 1.0);
+            blitMaterial.uniforms.tCurrent.value = rtScene.texture;
+            blitMaterial.uniforms.tHistory.value = rtScene.texture;
+            blitMaterial.uniforms.uBlend.value   = 1.0;
+            renderer.setRenderTarget(null);
+            renderer.render(blitScene, camera);
+        } else {
+            renderer.setRenderTarget(null);
+            renderer.render(scene, camera);
+        }
     }
 }
 
 // ---- resizeRenderTargets() -------------------------------------------------
 export function resizeRenderTargets(w, h) {
-    rtScene.setSize(w, h);
-    rtHistA.setSize(w, h);
-    rtHistB.setSize(w, h);
+    const rw = Math.max(1, Math.floor(w * renderScale));
+    const rh = Math.max(1, Math.floor(h * renderScale));
+    rtScene.setSize(rw, rh);
+    rtHistA.setSize(rw, rh);
+    rtHistB.setSize(rw, rh);
 }

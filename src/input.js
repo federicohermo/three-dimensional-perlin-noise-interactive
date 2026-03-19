@@ -1,7 +1,7 @@
 import { uniforms } from './uniforms.js';
 import { toggleTemporal, resetFrameIdx } from './temporal.js';
 import { attachNearbySphere } from './sphereAttachment.js';
-import { renderer, resizeRenderTargets } from './renderer.js';
+import { renderer, resizeRenderTargets, cycleRenderScale, renderScale } from './renderer.js';
 
 export const keys = { w: false, a: false, s: false, d: false };
 
@@ -24,6 +24,11 @@ export function registerInputHandlers(domElement) {
             resetFrameIdx();
             uniforms.iJitter.value.set(0, 0);
         }
+        if (k === 'r') {
+            const scale = cycleRenderScale();
+            resetFrameIdx();
+            console.log(`Render scale: ${(scale * 100).toFixed(0)}%`);
+        }
         if (e.code === 'Space') {
             attachNearbySphere();
         }
@@ -38,7 +43,10 @@ export function registerInputHandlers(domElement) {
     window.addEventListener('resize', () => {
         const w = window.innerWidth, h = window.innerHeight;
         renderer.setSize(w, h);
-        uniforms.iResolution.value.set(w, h, 1.0);
+        const rw = Math.max(1, Math.floor(w * renderScale));
+        const rh = Math.max(1, Math.floor(h * renderScale));
+        uniforms.iResolution.value.set(rw, rh, 1.0);
+        uniforms.uWindowSize.value.set(w, h);
         resizeRenderTargets(w, h);
         resetFrameIdx();
     });

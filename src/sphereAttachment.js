@@ -79,6 +79,8 @@ export function updateAttachmentUniforms() {
     const active  = uniforms.uAttachedActive.value;
     const ignored = uniforms.uIgnoredCells.value;
 
+    uniforms.uAttachedCount.value = attachedSpheres.length;
+
     for (let i = 0; i < 10; i++) {
         if (i < attachedSpheres.length) {
             offsets[i].copy(attachedSpheres[i].offset);

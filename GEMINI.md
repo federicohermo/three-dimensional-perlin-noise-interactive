@@ -53,3 +53,12 @@ Shadertoy-style 3D Perlin noise raymarcher ported to Three.js.
 - **Smooth Minimum Implementation**: Added a polynomial `smin` function to `shadertoy_common.glsl`, `index.html`, and `perlin3d_fixed.glsl` for organic blending between surfaces.
 - **Domain Repetition & Randomization**: Implemented XZ-plane domain repetition for infinite spheres. Added hash-based jittering using cell IDs to randomize X, Z, and Y positions within each cell territory.
 - **Blobby Interaction & Refinement**: Combined the character sphere with repeated spheres using `smin`. Tuned $k=0.4$ and baseline height $y=7.5$ for a tight, premium-feeling interaction that clears the terrain.
+
+### Session 10: Performance Optimizations
+- **`GetDistCheap` for shadows & AO**: Created a lightweight SDF variant using 2 noise octaves and a 3x3 neighbor search (no attachment spheres). Wired into `CastShadow` and `GetAO`. Restoring the 3x3 search was necessary to maintain SDF continuity and prevent terrain holes at cell boundaries. 
+- **`uAttachedCount` early-exit**: Added an integer uniform so the ignore-cell and attached-sphere inner loops can `break` at the actual count instead of always iterating 10.
+- **Reduced AO samples**: Decreased from 5 to 3 samples using `GetDistCheap`.
+- **Distance-adaptive normal epsilon**: Normal offset `h` now scales with ray distance ($\max(0.005, 0.0015 \cdot d)$) for faster convergence on distant surfaces.
+- **Removed unused rotation helpers**: Deleted `rotateYZ`, `rotateXZ`, `rotateXY` (dead code).
+- **Half-resolution rendering**: Render targets default to 50% resolution; blit pass upscales to full window size. Press **R** to cycle through 50% → 75% → 100%. Blit shader uses its own decoupled resolution uniform to handle per-pass resolution switching.
+- **WASD yaw sync**: JS yaw calculation uses `iResolution.x` (scaled resolution) instead of `window.innerWidth` to match the shader's normalization.
