@@ -23,7 +23,7 @@ function getJitter(p) {
 
 function getSpherePos(cellX, cellZ) {
     const curCell = new Vector3(cellX, cellZ, 0.0);
-    const jitter  = getJitter(curCell);
+    const jitter = getJitter(curCell);
     return new Vector3(
         cellX * 15.0 + jitter.x,
         7.5 + jitter.y * 0.5,
@@ -36,11 +36,14 @@ function getSpherePos(cellX, cellZ) {
 export function attachNearbySphere() {
     if (attachedSpheres.length >= 10) return;
 
-    const p     = uniforms.iCameraPos.value;
+    const p = uniforms.iCameraPos.value;
     const cellX = Math.floor((p.x + 7.5) / 15.0);
     const cellZ = Math.floor((p.z + 7.5) / 15.0);
 
-    let bestDist   = 4.0;
+    const CHAR_DOMAIN = 2.2;   // 0.8 + 0.6 + 0.4 (smoothmin k)
+    const DOM_DOM = 1.2;   // 0.6 + 0.6
+
+    let bestSdf = 0;        // ≤ 0 means collision; track deepest overlap
     let bestSphere = null;
     let sphereFound = false;
 
@@ -52,12 +55,18 @@ export function attachNearbySphere() {
             if (attachedSpheres.some(s => Math.abs(s.cell.x - cx) < 0.1 && Math.abs(s.cell.y - cz) < 0.1)) continue;
 
             const sPos = getSpherePos(cx, cz);
-            const dist = p.distanceTo(sPos);
+            const distToChar = p.distanceTo(sPos);
+            if (distToChar < 10.0) sphereFound = true;
 
-            if (dist < 10.0) sphereFound = true;
+            // SDF of this domain sphere against the whole cluster
+            let sdf = distToChar - CHAR_DOMAIN;
+            for (const s of attachedSpheres) {
+                const aPos = p.clone().add(s.offset);
+                sdf = Math.min(sdf, aPos.distanceTo(sPos) - DOM_DOM);
+            }
 
-            if (dist < bestDist) {
-                bestDist   = dist;
+            if (sdf <= 0 && (bestSphere === null || sdf < bestSdf)) {
+                bestSdf = sdf;
                 bestSphere = { offset: sPos.clone().sub(p), cell: new Vector2(cx, cz) };
             }
         }
@@ -69,14 +78,14 @@ export function attachNearbySphere() {
         updateAttachmentUniforms();
     } else {
         console.log(sphereFound
-            ? "DEBUG: Spheres detected but too far (>4.0 units)."
+            ? "DEBUG: Spheres detected but not colliding with cluster."
             : "DEBUG: No spheres in 3x3 grid.");
     }
 }
 
 export function updateAttachmentUniforms() {
     const offsets = uniforms.uAttachedOffsets.value;
-    const active  = uniforms.uAttachedActive.value;
+    const active = uniforms.uAttachedActive.value;
     const ignored = uniforms.uIgnoredCells.value;
 
     uniforms.uAttachedCount.value = attachedSpheres.length;
@@ -84,7 +93,7 @@ export function updateAttachmentUniforms() {
     for (let i = 0; i < 10; i++) {
         if (i < attachedSpheres.length) {
             offsets[i].copy(attachedSpheres[i].offset);
-            active[i]  = 1.0;
+            active[i] = 1.0;
             ignored[i].copy(attachedSpheres[i].cell);
         } else {
             active[i] = 0.0;
