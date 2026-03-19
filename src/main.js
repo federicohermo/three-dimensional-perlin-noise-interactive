@@ -1,3 +1,4 @@
+import { Clock, Vector3 } from 'three';
 import { uniforms } from './uniforms.js';
 import { renderer, render } from './renderer.js';
 import { temporalOn, frameIdx, resetFrameIdx, tickFrameIdx } from './temporal.js';
@@ -5,7 +6,7 @@ import { keys, registerInputHandlers } from './input.js';
 
 registerInputHandlers(renderer.domElement);
 
-const clock = new THREE.Clock();
+const clock = new Clock();
 
 (function animate() {
     requestAnimationFrame(animate);
@@ -19,8 +20,8 @@ const clock = new THREE.Clock();
     const yaw = -(m.x / window.innerWidth) * 12.5662 - 1.5707;
 
     // Forward = direction from camera to target (ta - ro); since ro = ta + offset, forward = -offset_dir
-    const forward = new THREE.Vector3(-Math.cos(yaw), 0, -Math.sin(yaw));
-    const right   = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), forward).normalize();
+    const forward = new Vector3(-Math.cos(yaw), 0, -Math.sin(yaw));
+    const right   = new Vector3().crossVectors(new Vector3(0, 1, 0), forward).normalize();
 
     let moved = false;
     if (keys.w) { uniforms.iCameraPos.value.addScaledVector(forward,  moveSpeed); moved = true; }

@@ -1,27 +1,32 @@
+import {
+    WebGLRenderer, OrthographicCamera, Scene, ShaderMaterial,
+    PlaneGeometry, Mesh, WebGLRenderTarget,
+    LinearFilter, RGBAFormat, UnsignedByteType
+} from 'three';
 import { vertexShader, fragmentShader, blitFragmentShader } from './shaders.js';
 import { uniforms } from './uniforms.js';
 import { halton } from './temporal.js';
 
 // ---- WebGL renderer --------------------------------------------------------
-export const renderer = new THREE.WebGLRenderer();
+export const renderer = new WebGLRenderer();
 renderer.setPixelRatio(1);  // Capped at 1x to avoid 4x pixel count on HiDPI screens
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
-export const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+export const camera = new OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
 // ---- Main scene (fullscreen raymarcher quad) --------------------------------
-const scene = new THREE.Scene();
-const material = new THREE.ShaderMaterial({ vertexShader, fragmentShader, uniforms });
-scene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material));
+const scene = new Scene();
+const material = new ShaderMaterial({ vertexShader, fragmentShader, uniforms });
+scene.add(new Mesh(new PlaneGeometry(2, 2), material));
 
 // ---- Render targets (ping-pong temporal accumulation) ----------------------
 function makeRT(w, h) {
-    return new THREE.WebGLRenderTarget(w, h, {
-        minFilter: THREE.LinearFilter,
-        magFilter: THREE.LinearFilter,
-        format: THREE.RGBAFormat,
-        type: THREE.UnsignedByteType,
+    return new WebGLRenderTarget(w, h, {
+        minFilter: LinearFilter,
+        magFilter: LinearFilter,
+        format: RGBAFormat,
+        type: UnsignedByteType,
     });
 }
 
@@ -30,7 +35,7 @@ let rtHistA = makeRT(window.innerWidth, window.innerHeight);  // history ping
 let rtHistB = makeRT(window.innerWidth, window.innerHeight);  // history pong
 
 // ---- Blit scene (blends current frame with history) ------------------------
-const blitMaterial = new THREE.ShaderMaterial({
+const blitMaterial = new ShaderMaterial({
     vertexShader,
     fragmentShader: blitFragmentShader,
     uniforms: {
@@ -40,8 +45,8 @@ const blitMaterial = new THREE.ShaderMaterial({
         iResolution: uniforms.iResolution,  // shared reference
     },
 });
-const blitScene = new THREE.Scene();
-blitScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), blitMaterial));
+const blitScene = new Scene();
+blitScene.add(new Mesh(new PlaneGeometry(2, 2), blitMaterial));
 
 // ---- render() — encapsulates the full ping-pong blit logic -----------------
 export function render(temporalOn, frameIdx) {

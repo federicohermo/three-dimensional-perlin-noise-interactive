@@ -1,3 +1,4 @@
+import { Vector2, Vector3 } from 'three';
 import { uniforms } from './uniforms.js';
 
 const attachedSpheres = []; // { offset: Vector3, cell: Vector2 }
@@ -15,15 +16,15 @@ function getJitter(p) {
     const resX = fract((px + py) * pz);
     const resY = fract((px + px) * py);
     const resZ = fract((py + px) * px);
-    return new THREE.Vector3(-1.0 + 2.0 * resX, -1.0 + 2.0 * resY, -1.0 + 2.0 * resZ)
+    return new Vector3(-1.0 + 2.0 * resX, -1.0 + 2.0 * resY, -1.0 + 2.0 * resZ)
         .normalize()
         .multiplyScalar(4.5);
 }
 
 function getSpherePos(cellX, cellZ) {
-    const curCell = new THREE.Vector3(cellX, cellZ, 0.0);
+    const curCell = new Vector3(cellX, cellZ, 0.0);
     const jitter  = getJitter(curCell);
-    return new THREE.Vector3(
+    return new Vector3(
         cellX * 15.0 + jitter.x,
         7.5 + jitter.y * 0.5,
         cellZ * 15.0 + jitter.z
@@ -57,7 +58,7 @@ export function attachNearbySphere() {
 
             if (dist < bestDist) {
                 bestDist   = dist;
-                bestSphere = { offset: sPos.clone().sub(p), cell: new THREE.Vector2(cx, cz) };
+                bestSphere = { offset: sPos.clone().sub(p), cell: new Vector2(cx, cz) };
             }
         }
     }

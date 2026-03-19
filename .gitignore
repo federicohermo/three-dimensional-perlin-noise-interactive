@@ -13,6 +13,10 @@ dist/
 dist-ssr/
 *.local
 
+# Project configuration and build tools
+package.json
+vite.config.js
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -25,7 +29,9 @@ dist-ssr/
 *.sw?
 
 # Bun
+bun.lock
 bun.lockb
 
 # Local tool outputs
 browsercaptures/
+src/glsl/
