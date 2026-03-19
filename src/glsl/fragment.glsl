@@ -168,7 +168,10 @@ float CastShadow(vec3 ro, vec3 rd, float tmin, float tmax, float k, float distTo
     for (int i = 0; i < 48; i++) {
         if(i >= steps || t >= tmax) break;
         float h = GetDist(ro + t*rd, 4.0);
-        if (h < SURFACE_DIST) return 0.0;
+        if (h < SURFACE_DIST) {
+            if (t < 0.25) { t += 0.1; continue; }  // escape LOD mismatch zone
+            return 0.0;
+        }
         res = min(res, k * h / t);
         if (res < 0.005) break; 
         t += clamp(h, (distToCam < 12.0 ? 0.005 : 0.01), 0.25);
@@ -181,7 +184,7 @@ float GetAO(vec3 p, vec3 n) {
     for (int i = 0; i < 3; i++) {
         float h = 0.01 + 0.15 * float(i) / 2.0;
         float d = GetDist(p + n * h, 4.0);
-        occ += (h - d) * sca;
+        occ += clamp(h - d, 0.0, h) * sca;
         sca *= 0.95;
     }
     return clamp(1.0 - 3.0 * occ, 0.0, 1.0);
@@ -193,7 +196,7 @@ vec3 GetLight(vec3 p, float organicDetail, vec3 rd, float rayDist) {
     vec3 n = GetNormal(p, organicDetail, rayDist);
     float diff = clamp(dot(n, l), 0., 1.);
     float distToCam = length(p - iCameraPos);
-    float shadow = CastShadow(p + n * 0.1, l, 0.02, 12.0, 8.0, distToCam);
+    float shadow = CastShadow(p + n * 0.2, l, 0.02, 12.0, 8.0, distToCam);
     vec3 col = vec3(1.0, 0.9, 0.8) * diff * shadow;
     float sca = clamp(0.5 + 0.5 * n.y, 0.0, 1.0);
     col += (mix(vec3(0.2, 0.5, 1.0), vec3(0.1, 0.05, 0.02), 1.0-sca)) * 0.2;
