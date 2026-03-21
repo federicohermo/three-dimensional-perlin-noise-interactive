@@ -29,7 +29,40 @@ float Hash(vec3 p) {
 vec3 Hash3(vec3 p) {
     p = fract(p * vec3(0.1031, 0.1030, 0.0973));
     p += dot(p, p.yxz + 33.33);
-    return normalize(-1.0 + 2.0 * fract((p.xxy + p.yxx) * p.zyx));
+    return -1.0 + 2.0 * fract((p.xxy + p.yxx) * p.zyx);
+}
+
+float HashV(vec3 p) {
+    p = fract(p * vec3(0.1031, 0.1030, 0.0973));
+    p += dot(p, p.yxz + 33.33);
+    return fract((p.x + p.y) * p.z);
+}
+
+vec4 vNoised(vec3 p) {
+    vec3 i = floor(p);
+    vec3 f = fract(p);
+    vec3 u  = f * f * (3.0 - 2.0 * f);
+    vec3 du = 6.0 * f * (1.0 - f);
+
+    float n000 = HashV(i + vec3(0,0,0)); float n100 = HashV(i + vec3(1,0,0));
+    float n010 = HashV(i + vec3(0,1,0)); float n110 = HashV(i + vec3(1,1,0));
+    float n001 = HashV(i + vec3(0,0,1)); float n101 = HashV(i + vec3(1,0,1));
+    float n011 = HashV(i + vec3(0,1,1)); float n111 = HashV(i + vec3(1,1,1));
+
+    float b = n100-n000, c = n010-n000, d = n001-n000;
+    float e = n110-n010-n100+n000, g = n101-n001-n100+n000;
+    float h = n011-n001-n010+n000;
+    float k = n111-n011-n101-n110+n100+n010+n001-n000;
+
+    float n = n000 + b*u.x + c*u.y + d*u.z
+            + e*u.x*u.y + g*u.x*u.z + h*u.y*u.z + k*u.x*u.y*u.z;
+
+    vec3 deriv = du * vec3(
+        b + e*u.y + g*u.z + k*u.y*u.z,
+        c + e*u.x + h*u.z + k*u.x*u.z,
+        d + g*u.x + h*u.y + k*u.x*u.y
+    );
+    return vec4(n, deriv);
 }
 
 vec3 GetJitter(vec3 p) {
@@ -78,6 +111,30 @@ float Noise(vec3 p, float octaves) {
     return value / max(0.0001, normalize_factor);
 }
 
+vec4 NoiseD(vec3 p, float octaves) {
+    mat3 m3  = mat3( 0.00,  0.80,  0.60, -0.80,  0.36, -0.48, -0.60, -0.48,  0.64);
+    mat3 m3T = mat3( 0.00, -0.80, -0.60,  0.80,  0.36, -0.48,  0.60, -0.48,  0.64);
+    float value = 0.0, nf = 0.0, scale = 0.5, freq = 1.0;
+    vec3 dsum = vec3(0.0), totalDeriv = vec3(0.0);
+    for (int i = 0; i < 4; i++) {
+        float fi = float(i);
+        if (fi >= octaves) break;
+        float weight = scale * min(1.0, octaves - fi);
+        vec4 nd = vNoised(p);
+        vec3 dWorld = (m3T * nd.yzw) / freq;
+        float erosion = 1.0 / (1.0 + dot(dsum, dsum));
+        float w = weight * erosion;
+        value += nd.x * w;
+        nf += w;
+        dsum += weight * dWorld;
+        totalDeriv += w * dWorld;
+        p = m3 * p * 2.0;
+        scale *= 0.5; freq *= 2.0;
+    }
+    float inv = 1.0 / max(0.0001, nf);
+    return vec4(value * inv, totalDeriv * inv);
+}
+
 // ---- Smooth Minimum ----
 float smin( float a, float b, float k ) {
     float h = clamp( 0.5+0.5*(b-a)/k, 0.0, 1.0 );
@@ -85,7 +142,7 @@ float smin( float a, float b, float k ) {
 }
 
 // ---- Scene SDF ----
-float GetDist(vec3 p, float organicDetail) {
+vec2 GetDistID(vec3 p, float organicDetail) {
     float camDist = length(p - iCameraPos);
     float oct = 1.0;
     oct += 2.0 * (1.0 - smoothstep(15.0, 40.0, camDist));
@@ -123,11 +180,16 @@ float GetDist(vec3 p, float organicDetail) {
         spheres = smin(spheres, dAttached, 0.4);
     }
 
-    float basePlaneDist = p.y - 6.0;
-    float planeDist = (basePlaneDist < 12.0) ? basePlaneDist + 8.1*Noise(p*.125, oct) - 1.1*Noise(p*.25, oct) + 0.1 : basePlaneDist - 1.1;
+    float basePlaneDist = p.y - 8.0;
+    float planeDist = (basePlaneDist < 12.0) ? basePlaneDist + 8.1*Noise(p*.125, oct) - 1.1*Noise(p*.25, oct) + 0.15*Noise(p, oct) + 0.1 : basePlaneDist - 1.1;
     planeDist *= 0.4;
 
-    return min(spheres, planeDist);
+    float d = min(spheres, planeDist);
+    return vec2(d, step(spheres, planeDist));  // id: 0=terrain, 1=sphere
+}
+
+float GetDist(vec3 p, float organicDetail) {
+    return GetDistID(p, organicDetail).x;
 }
 
 // ---- Raymarcher ----
@@ -193,6 +255,7 @@ float GetAO(vec3 p, vec3 n) {
 vec3 GetLight(vec3 p, float organicDetail, vec3 rd, float rayDist) {
     vec3 lightPos = vec3(-5.0, 15.0, -1.0);
     vec3 l = normalize(lightPos - p);
+
     vec3 n = GetNormal(p, organicDetail, rayDist);
     float diff = clamp(dot(n, l), 0., 1.);
     float distToCam = length(p - iCameraPos);
