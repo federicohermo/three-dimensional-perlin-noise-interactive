@@ -1,0 +1,87 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono&display=swap');
+
+body {
+    margin: 0;
+    overflow: hidden;
+    background: #000;
+}
+
+canvas {
+    display: block;
+}
+
+#start {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: opacity 0.6s ease;
+}
+
+#panel {
+    width: 340px;
+    padding: 36px 40px 40px;
+    background: rgba(6, 6, 6, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    font-family: 'Space Mono', monospace;
+    color: #fff;
+}
+
+#tag {
+    font-size: 10px;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    opacity: 0.4;
+    margin-bottom: 20px;
+}
+
+#title {
+    margin: 0 0 24px;
+    font-size: 72px;
+    font-weight: 700;
+    line-height: 0.95;
+    letter-spacing: -0.02em;
+    text-transform: uppercase;
+}
+
+#rule {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.15);
+    margin: 0 0 24px;
+}
+
+#controls {
+    display: flex;
+    gap: 20px;
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    opacity: 0.5;
+    margin-bottom: 32px;
+    flex-wrap: wrap;
+}
+
+#enter-btn {
+    display: block;
+    width: 100%;
+    padding: 12px 0;
+    background: none;
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    color: #fff;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background 0s, color 0s;
+    box-sizing: border-box;
+}
+
+#enter-btn:hover {
+    background: #fff;
+    color: #000;
+}

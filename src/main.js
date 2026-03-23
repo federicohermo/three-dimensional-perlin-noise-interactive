@@ -1,3 +1,4 @@
+import './ui.js';
 import { Clock, Vector3 } from 'three';
 import { uniforms } from './uniforms.js';
 import { renderer, render } from './renderer.js';
@@ -49,7 +50,7 @@ let vy = 0;
         vy = 0;
     }
 
-    if (moved || hasActiveFalling()) resetFrameIdx();
+    if (moved || !onGround || hasActiveFalling()) resetFrameIdx();
 
     tickFalling(dt, forward);
 
