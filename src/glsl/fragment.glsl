@@ -185,13 +185,13 @@ vec2 GetDistID(vec3 p, float organicDetail) {
     planeDist *= 0.4;
 
     // Smooth blend: repeat spheres merge into terrain
-    float repBlend = smin(repSphereDist, planeDist, 0.4);
+    float repBlend = smin(repSphereDist, planeDist, 1.0);
 
     // Attached spheres also blend smoothly with rep+terrain
     for(int i = 0; i < 10; i++) {
         if(i >= uAttachedCount) break;
         float dAttached = length((p - iCameraPos) - uAttachedOffsets[i]) - 0.6;
-        repBlend = smin(repBlend, dAttached, 0.4);
+        repBlend = smin(repBlend, dAttached, 1.0);
     }
 
     // Character sphere: smooth blend with rep spheres
