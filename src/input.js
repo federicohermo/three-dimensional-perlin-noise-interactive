@@ -29,7 +29,7 @@ export function registerInputHandlers(domElement) {
             resetFrameIdx();
             console.log(`Render scale: ${(scale * 100).toFixed(0)}%`);
         }
-        if (e.code === 'Space') {
+        if (k === 'e') {
             attachNearbySphere();
         }
     });
