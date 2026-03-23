@@ -4,6 +4,7 @@ import { renderer, render } from './renderer.js';
 import { temporalOn, frameIdx, resetFrameIdx, tickFrameIdx } from './temporal.js';
 import { keys, registerInputHandlers } from './input.js';
 import { tickFalling, hasActiveFalling } from './sphereAttachment.js';
+import { queryTerrainHeight } from './heightQuery.js';
 
 registerInputHandlers(renderer.domElement);
 
@@ -17,18 +18,22 @@ const clock = new Clock();
 
     // ---- WASD Movement -----------------------------------------------------
     const moveSpeed = 5.0 * dt;
-    const m   = uniforms.iMouse.value;
+    const m = uniforms.iMouse.value;
     const yaw = -(m.x / window.innerWidth) * 12.5662 - 1.5707;
 
     // Forward = direction from camera to target (ta - ro); since ro = ta + offset, forward = -offset_dir
     const forward = new Vector3(-Math.cos(yaw), 0, -Math.sin(yaw));
-    const right   = new Vector3().crossVectors(new Vector3(0, 1, 0), forward).normalize();
+    const right = new Vector3().crossVectors(new Vector3(0, 1, 0), forward).normalize();
 
     let moved = false;
-    if (keys.w) { uniforms.iCameraPos.value.addScaledVector(forward,  moveSpeed); moved = true; }
+    if (keys.w) { uniforms.iCameraPos.value.addScaledVector(forward, moveSpeed); moved = true; }
     if (keys.s) { uniforms.iCameraPos.value.addScaledVector(forward, -moveSpeed); moved = true; }
-    if (keys.a) { uniforms.iCameraPos.value.addScaledVector(right,   -moveSpeed); moved = true; }
-    if (keys.d) { uniforms.iCameraPos.value.addScaledVector(right,    moveSpeed); moved = true; }
+    if (keys.a) { uniforms.iCameraPos.value.addScaledVector(right, -moveSpeed); moved = true; }
+    if (keys.d) { uniforms.iCameraPos.value.addScaledVector(right, moveSpeed); moved = true; }
+
+    // Snap sphere to terrain surface
+    const pos = uniforms.iCameraPos.value;
+    pos.y = queryTerrainHeight(pos.x, pos.z) + 2.0;
 
     if (moved || hasActiveFalling()) resetFrameIdx();
 
