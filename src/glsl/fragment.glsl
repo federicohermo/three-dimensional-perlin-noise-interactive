@@ -7,8 +7,12 @@ uniform vec2 iJitter;
 uniform vec3 iCameraPos;
 uniform vec3 uAttachedOffsets[10];
 uniform float uAttachedActive[10];
-uniform vec2 uIgnoredCells[10];
+uniform vec2 uIgnoredCells[15];
 uniform int uAttachedCount;
+uniform int uIgnoredCount;
+uniform vec3 uFallingPositions[5];
+uniform float uFallingRadii[5];
+uniform int uFallingCount;
 uniform vec2 uWindowSize;
 
 // ============================================================================
@@ -169,8 +173,8 @@ vec2 GetDistID(vec3 p, float organicDetail) {
         for(int j = -1; j <= 1; j++) {
             vec2 curCell = cell + vec2(float(i), float(j));
             bool ignored = false;
-            for(int k=0; k<10; k++) {
-                if(k >= uAttachedCount) break;
+            for(int k=0; k<15; k++) {
+                if(k >= uIgnoredCount) break;
                 if(length(curCell - uIgnoredCells[k]) < 0.1) { ignored = true; break; }
             }
             if(!ignored) {
@@ -192,6 +196,15 @@ vec2 GetDistID(vec3 p, float organicDetail) {
         if(i >= uAttachedCount) break;
         float dAttached = length((p - iCameraPos) - uAttachedOffsets[i]) - 0.6;
         repBlend = smin(repBlend, dAttached, 1.0);
+    }
+
+    // Falling spheres blend with the scene
+    for(int i = 0; i < 5; i++) {
+        if(i >= uFallingCount) break;
+        float r = uFallingRadii[i];
+        if(r < 0.05) continue;  // skip near-zero radius — prevents dimple artifact
+        float dFalling = length(p - uFallingPositions[i]) - r;
+        repBlend = smin(repBlend, dFalling, r);  // k scales with r; blend shrinks cleanly
     }
 
     // Character sphere: smooth blend with rep spheres

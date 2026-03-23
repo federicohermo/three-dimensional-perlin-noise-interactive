@@ -3,6 +3,7 @@ import { uniforms } from './uniforms.js';
 import { renderer, render } from './renderer.js';
 import { temporalOn, frameIdx, resetFrameIdx, tickFrameIdx } from './temporal.js';
 import { keys, registerInputHandlers } from './input.js';
+import { tickFalling, hasActiveFalling } from './sphereAttachment.js';
 
 registerInputHandlers(renderer.domElement);
 
@@ -29,7 +30,9 @@ const clock = new Clock();
     if (keys.a) { uniforms.iCameraPos.value.addScaledVector(right,   -moveSpeed); moved = true; }
     if (keys.d) { uniforms.iCameraPos.value.addScaledVector(right,    moveSpeed); moved = true; }
 
-    if (moved) resetFrameIdx();
+    if (moved || hasActiveFalling()) resetFrameIdx();
+
+    tickFalling(dt, forward);
 
     // ---- Render ------------------------------------------------------------
     render(temporalOn, frameIdx);

@@ -1,6 +1,6 @@
 import { uniforms } from './uniforms.js';
 import { toggleTemporal, resetFrameIdx } from './temporal.js';
-import { attachNearbySphere } from './sphereAttachment.js';
+import { attachNearbySphere, detachLastSphere } from './sphereAttachment.js';
 import { renderer, resizeRenderTargets, cycleRenderScale, renderScale } from './renderer.js';
 
 export const keys = { w: false, a: false, s: false, d: false };
@@ -31,6 +31,10 @@ export function registerInputHandlers(domElement) {
         }
         if (k === 'e') {
             attachNearbySphere();
+        }
+        if (k === 'q') {
+            detachLastSphere();
+            resetFrameIdx();
         }
     });
 

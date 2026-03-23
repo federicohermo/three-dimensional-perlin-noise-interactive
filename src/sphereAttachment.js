@@ -2,6 +2,9 @@ import { Vector2, Vector3 } from 'three';
 import { uniforms } from './uniforms.js';
 
 const attachedSpheres = []; // { offset: Vector3, cell: Vector2 }
+const fallingSpheres  = []; // { worldPos: Vector3, vel: Vector3, cell: Vector2, age: number }
+const MAX_FALLING   = 5;
+const FALL_LIFETIME = 1.2;
 
 // ---- JS mirrors of the GLSL helper functions -------------------------------
 function fract(v) { return v - Math.floor(v); }
@@ -85,7 +88,7 @@ export function attachNearbySphere() {
 
 export function updateAttachmentUniforms() {
     const offsets = uniforms.uAttachedOffsets.value;
-    const active = uniforms.uAttachedActive.value;
+    const active  = uniforms.uAttachedActive.value;
     const ignored = uniforms.uIgnoredCells.value;
 
     uniforms.uAttachedCount.value = attachedSpheres.length;
@@ -94,9 +97,85 @@ export function updateAttachmentUniforms() {
         if (i < attachedSpheres.length) {
             offsets[i].copy(attachedSpheres[i].offset);
             active[i] = 1.0;
-            ignored[i].copy(attachedSpheres[i].cell);
         } else {
             active[i] = 0.0;
         }
     }
+
+    // Pack all ignored cells contiguously so uIgnoredCount indexes them correctly
+    let ignoredIdx = 0;
+    for (const s of attachedSpheres) ignored[ignoredIdx++].copy(s.cell);
+    for (const s of fallingSpheres)  ignored[ignoredIdx++].copy(s.cell);
+    uniforms.uIgnoredCount.value = ignoredIdx;
+}
+
+function updateFallingUniforms() {
+    const pos   = uniforms.uFallingPositions.value;
+    const radii = uniforms.uFallingRadii.value;
+    uniforms.uFallingCount.value = fallingSpheres.length;
+    for (let i = 0; i < 5; i++) {
+        if (i < fallingSpheres.length) {
+            pos[i].copy(fallingSpheres[i].worldPos);
+            const isDone = fallingSpheres[i].age >= FALL_LIFETIME;
+            radii[i] = isDone ? 0 : 0.6;
+        } else {
+            radii[i] = 0;
+        }
+    }
+}
+
+export function detachLastSphere() {
+    if (attachedSpheres.length === 0) return;
+    if (fallingSpheres.length >= MAX_FALLING) return;
+    const s = attachedSpheres.pop();
+    const worldPos = uniforms.iCameraPos.value.clone().add(s.offset);
+    fallingSpheres.push({ worldPos, originPos: worldPos.clone(), vel: new Vector3(0, -2, 0), cell: s.cell, age: 0 });
+    updateAttachmentUniforms();
+}
+
+export function hasActiveFalling() {
+    return fallingSpheres.some(s => s.age < FALL_LIFETIME);
+}
+
+export function tickFalling(dt, forward) {
+    if (fallingSpheres.length === 0) return;
+    const GRAVITY = -3.0;
+
+    // iCameraPos is the orbit look-at target (ta), not the eye.
+    // Reconstruct actual eye position (ro) to correctly classify behind-camera.
+    const ta = uniforms.iCameraPos.value;
+    const m  = uniforms.iMouse.value;
+    const mNormX = m.x / uniforms.uWindowSize.value.x;
+    const mNormY = m.y / uniforms.uWindowSize.value.y;
+    const yaw    = -mNormX * 12.5662 - 1.5707;
+    const pitch  = (mNormY - 0.5) * 4.0;
+    const CAMDIST = 4.0;
+    const ro = ta.clone().add(new Vector3(
+        CAMDIST * Math.cos(yaw) * Math.cos(pitch),
+        CAMDIST * Math.sin(pitch),
+        CAMDIST * Math.sin(yaw) * Math.cos(pitch)
+    ));
+
+    for (const s of fallingSpheres) {
+        if (s.age < FALL_LIFETIME) {
+            s.age += dt;
+            s.vel.y += GRAVITY * dt;
+            s.worldPos.addScaledVector(s.vel, dt);
+        }
+    }
+
+    // Remove only when animation done AND sphere is behind camera
+    for (let i = fallingSpheres.length - 1; i >= 0; i--) {
+        const s = fallingSpheres[i];
+        if (s.age >= FALL_LIFETIME) {
+            const dir = s.originPos.clone().sub(ro);
+            const dist = dir.length();
+            if (dist > 8.0 && dir.dot(forward) / dist < -0.2) {
+                fallingSpheres.splice(i, 1);
+            }
+        }
+    }
+
+    updateFallingUniforms();
+    updateAttachmentUniforms();
 }
