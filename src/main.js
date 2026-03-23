@@ -10,6 +10,10 @@ registerInputHandlers(renderer.domElement);
 
 const clock = new Clock();
 
+const GRAVITY = -22;
+const JUMP_VEL = 12;
+let vy = 0;
+
 (function animate() {
     requestAnimationFrame(animate);
 
@@ -31,9 +35,19 @@ const clock = new Clock();
     if (keys.a) { uniforms.iCameraPos.value.addScaledVector(right, -moveSpeed); moved = true; }
     if (keys.d) { uniforms.iCameraPos.value.addScaledVector(right, moveSpeed); moved = true; }
 
-    // Snap sphere to terrain surface
+    // Jump & gravity
     const pos = uniforms.iCameraPos.value;
-    pos.y = queryTerrainHeight(pos.x, pos.z) + 2.0;
+    const groundY = queryTerrainHeight(pos.x, pos.z) + 2.0;
+    const onGround = pos.y <= groundY + 0.05;
+
+    if (keys.space && onGround) vy = JUMP_VEL;
+    vy += GRAVITY * dt;
+    pos.y += vy * dt;
+
+    if (pos.y <= groundY) {
+        pos.y = groundY;
+        vy = 0;
+    }
 
     if (moved || hasActiveFalling()) resetFrameIdx();
 

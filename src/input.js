@@ -3,7 +3,7 @@ import { toggleTemporal, resetFrameIdx } from './temporal.js';
 import { attachNearbySphere, detachLastSphere } from './sphereAttachment.js';
 import { renderer, resizeRenderTargets, cycleRenderScale, renderScale } from './renderer.js';
 
-export const keys = { w: false, a: false, s: false, d: false };
+export const keys = { w: false, a: false, s: false, d: false, space: false };
 
 // Persistent accumulated virtual cursor position.
 // Initially offset so the default shader camera angle faces +Z.
@@ -19,6 +19,7 @@ export function registerInputHandlers(domElement) {
     window.addEventListener('keydown', (e) => {
         const k = e.key.toLowerCase();
         if (k in keys) keys[k] = true;
+        if (e.key === ' ') { keys.space = true; e.preventDefault(); }
         if (k === 't') {
             toggleTemporal();
             resetFrameIdx();
@@ -41,6 +42,7 @@ export function registerInputHandlers(domElement) {
     window.addEventListener('keyup', (e) => {
         const k = e.key.toLowerCase();
         if (k in keys) keys[k] = false;
+        if (e.key === ' ') keys.space = false;
     });
 
     // ---- Resize ------------------------------------------------------------
