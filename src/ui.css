@@ -14,71 +14,85 @@ canvas {
     position: fixed;
     inset: 0;
     z-index: 10;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    background: rgba(0, 0, 0, 0.82);
+    font-family: 'Space Mono', monospace;
+    color: #fff;
     transition: opacity 0.6s ease;
 }
 
-#panel {
-    width: 340px;
-    padding: 36px 40px 40px;
-    background: rgba(6, 6, 6, 0.55);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
-    font-family: 'Space Mono', monospace;
-    color: #fff;
-}
-
-#tag {
-    font-size: 10px;
-    letter-spacing: 0.25em;
+#meta-tl {
+    position: absolute;
+    top: 28px;
+    left: 32px;
+    font-size: 9px;
+    letter-spacing: 0.28em;
     text-transform: uppercase;
     opacity: 0.4;
-    margin-bottom: 20px;
+}
+
+#meta-tr {
+    position: absolute;
+    top: 28px;
+    right: 32px;
+    font-size: 9px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    text-align: right;
+    opacity: 0.4;
 }
 
 #title {
-    margin: 0 0 24px;
-    font-size: 72px;
+    position: absolute;
+    bottom: 80px;
+    left: 32px;
+    margin: 0;
+    font-size: clamp(88px, 11vw, 156px);
     font-weight: 700;
-    line-height: 0.95;
-    letter-spacing: -0.02em;
+    line-height: 0.9;
+    letter-spacing: -0.03em;
     text-transform: uppercase;
+    color: #fff;
+}
+
+#controls {
+    position: absolute;
+    bottom: 108px;
+    right: 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    text-align: right;
+    opacity: 0.45;
+}
+
+#bottom-bar {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    flex-direction: column;
 }
 
 #rule {
     height: 1px;
-    background: rgba(255, 255, 255, 0.15);
-    margin: 0 0 24px;
-}
-
-#controls {
-    display: flex;
-    gap: 20px;
-    font-size: 10px;
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    opacity: 0.5;
-    margin-bottom: 32px;
-    flex-wrap: wrap;
+    background: #e8001a;
 }
 
 #enter-btn {
-    display: block;
-    width: 100%;
-    padding: 12px 0;
-    background: none;
-    border: 1px solid rgba(255, 255, 255, 0.8);
+    padding: 14px 32px;
+    background: #e8001a;
+    border: none;
     color: #fff;
     font-family: 'Space Mono', monospace;
     font-size: 11px;
-    letter-spacing: 0.3em;
+    letter-spacing: 0.35em;
     text-transform: uppercase;
     cursor: pointer;
-    transition: background 0s, color 0s;
-    box-sizing: border-box;
+    text-align: right;
 }
 
 #enter-btn:hover {

@@ -2,17 +2,18 @@ import './ui.css';
 
 document.body.insertAdjacentHTML('afterbegin', `
 <div id="start">
-    <div id="panel">
-        <div id="tag">PERLIN · 001</div>
-        <h1 id="title">EVEN<br>FIELD</h1>
+    <div id="meta-tl">PERLIN · 001</div>
+    <div id="meta-tr">EVEN FIELD / 3D RAYMARCHER</div>
+    <h1 id="title">EVEN<br>FIELD</h1>
+    <nav id="controls">
+        <span>WASD — MOVE</span>
+        <span>SPACE — JUMP</span>
+        <span>DRAG — LOOK</span>
+        <span>E — ATTACH SPHERE</span>
+        <span>Q — DETACH SPHERE</span>
+    </nav>
+    <div id="bottom-bar">
         <div id="rule"></div>
-        <div id="controls">
-            <span>WASD — MOVE</span>
-            <span>SPACE — JUMP</span>
-            <span>DRAG — LOOK</span>
-            <span>E — ATTACH SPHERE</span>
-            <span>Q — DETACH SPHERE</span>
-        </div>
         <button id="enter-btn">ENTER</button>
     </div>
 </div>
