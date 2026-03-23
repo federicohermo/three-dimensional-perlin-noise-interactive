@@ -141,6 +141,15 @@ float smin( float a, float b, float k ) {
     return mix( b, a, h ) - k*h*(1.0-h);
 }
 
+// Exponential smooth minimum — gradient is always a convex blend of input
+// gradients (no extra derivative terms), giving correct normals even on
+// Lipschitz-scaled SDFs. Phantom depth at a==b==0 is 1/k in SDF units.
+float sminE( float a, float b, float k ) {
+    float ea = exp2(-k * a);
+    float eb = exp2(-k * b);
+    return -log2(ea + eb) / k;
+}
+
 // ---- Scene SDF ----
 vec2 GetDistID(vec3 p, float organicDetail) {
     float camDist = length(p - iCameraPos);
@@ -171,21 +180,23 @@ vec2 GetDistID(vec3 p, float organicDetail) {
             }
         }
     }
-    float spheres = smin(sphereDist, repSphereDist, 0.4);
-
-    // Attached spheres
-    for(int i = 0; i < 10; i++) {
-        if(i >= uAttachedCount) break;
-        float dAttached = length((p - iCameraPos) - uAttachedOffsets[i]) - 0.6;
-        spheres = smin(spheres, dAttached, 0.4);
-    }
-
     float basePlaneDist = p.y - 8.0;
     float planeDist = (basePlaneDist < 12.0) ? basePlaneDist + 8.1*Noise(p*.125, oct) - 1.1*Noise(p*.25, oct) + 0.15*Noise(p, oct) + 0.1 : basePlaneDist - 1.1;
     planeDist *= 0.4;
 
-    float d = min(spheres, planeDist);
-    return vec2(d, step(spheres, planeDist));  // id: 0=terrain, 1=sphere
+    // Smooth blend: repeat spheres merge into terrain
+    float repBlend = smin(repSphereDist, planeDist, 0.4);
+
+    // Attached spheres also blend smoothly with rep+terrain
+    for(int i = 0; i < 10; i++) {
+        if(i >= uAttachedCount) break;
+        float dAttached = length((p - iCameraPos) - uAttachedOffsets[i]) - 0.6;
+        repBlend = smin(repBlend, dAttached, 0.4);
+    }
+
+    // Character sphere: smooth blend with rep spheres
+    float d = smin(sphereDist, repBlend, 0.4);
+    return vec2(d, step(sphereDist, repBlend));  // id: 0=terrain/rep, 1=char sphere
 }
 
 float GetDist(vec3 p, float organicDetail) {
@@ -246,7 +257,7 @@ float GetAO(vec3 p, vec3 n) {
     for (int i = 0; i < 3; i++) {
         float h = 0.01 + 0.15 * float(i) / 2.0;
         float d = GetDist(p + n * h, 4.0);
-        occ += clamp(h - d, 0.0, h) * sca;
+        occ += clamp(h - abs(d), 0.0, h) * sca;  // abs(d): phantom zone (d<0) → zero AO
         sca *= 0.95;
     }
     return clamp(1.0 - 3.0 * occ, 0.0, 1.0);

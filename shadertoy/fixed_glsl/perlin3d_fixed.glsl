@@ -302,6 +302,16 @@ float smin( float a, float b, float k )
     return mix( b, a, h ) - k*h*(1.0-h);
 }
 
+// Exponential smooth minimum — gradient is always a convex blend of input
+// gradients (no extra derivative terms), giving correct normals even on
+// Lipschitz-scaled SDFs. Phantom depth at a==b==0 is 1/k in SDF units.
+float sminE( float a, float b, float k )
+{
+    float ea = exp2(-k * a);
+    float eb = exp2(-k * b);
+    return -log2(ea + eb) / k;
+}
+
 // ---- Scene SDF -------------------------------------------------------------
 float GetDist(vec3 p, float organicDetail) {
     float camDist = length(p - vec3(0., 6., 4.));
@@ -342,7 +352,7 @@ float GetDist(vec3 p, float organicDetail) {
     float planeDist = (basePlaneDist < 12.0) ? basePlaneDist + 8.1*Noise(p*.125, oct) - 1.1*Noise(p*.25, oct) + 0.15*Noise(p, oct) + 0.1 : basePlaneDist - 1.1;
     planeDist *= 0.4; 
 
-    return min(spheres, planeDist);
+    return sminE(spheres, planeDist, 3.0);
 }
 
 // ---- Raymarcher ----
