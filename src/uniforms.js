@@ -13,6 +13,7 @@ export const uniforms = {
     iCameraPos:        { value: new Vector3(0.0, 8.0, 4.0) },
     uAttachedOffsets:  { value: Array.from({ length: 10 }, () => new Vector3()) },
     uAttachedActive:   { value: new Float32Array(10) },
+    uAttachedRadii:    { value: new Float32Array(10) },
     uIgnoredCells:     { value: Array.from({ length: 15 }, () => new Vector2()) },
     uAttachedCount:    { value: 0 },
     uIgnoredCount:     { value: 0 },

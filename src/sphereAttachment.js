@@ -8,6 +8,16 @@ const FALL_LIFETIME = 1.2;
 
 // ---- JS mirrors of the GLSL helper functions -------------------------------
 function fract(v) { return v - Math.floor(v); }
+
+function hashCell(cx, cz) {
+    let ax = fract(cx * 1741.124), ay = fract(1.0 * 7537.13), az = fract(cz * 4157.47);
+    const d = ax*(ax+71.13) + ay*(ay+71.13) + az*(az+71.13);
+    ax += d; ay += d; az += d;
+    return fract((ax + ay) * az);
+}
+function cellRadius(cx, cz) {
+    return 0.6 + 0.4 * hashCell(cx, cz);
+}
 function dot3(a, b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
 
 function getJitter(p) {
@@ -70,7 +80,7 @@ export function attachNearbySphere() {
 
             if (sdf <= 0 && (bestSphere === null || sdf < bestSdf)) {
                 bestSdf = sdf;
-                bestSphere = { offset: sPos.clone().sub(p), cell: new Vector2(cx, cz) };
+                bestSphere = { offset: sPos.clone().sub(p), cell: new Vector2(cx, cz), radius: cellRadius(cx, cz) };
             }
         }
     }
@@ -89,6 +99,7 @@ export function attachNearbySphere() {
 export function updateAttachmentUniforms() {
     const offsets = uniforms.uAttachedOffsets.value;
     const active  = uniforms.uAttachedActive.value;
+    const radii   = uniforms.uAttachedRadii.value;
     const ignored = uniforms.uIgnoredCells.value;
 
     uniforms.uAttachedCount.value = attachedSpheres.length;
@@ -97,8 +108,10 @@ export function updateAttachmentUniforms() {
         if (i < attachedSpheres.length) {
             offsets[i].copy(attachedSpheres[i].offset);
             active[i] = 1.0;
+            radii[i]  = attachedSpheres[i].radius;
         } else {
             active[i] = 0.0;
+            radii[i]  = 0.0;
         }
     }
 

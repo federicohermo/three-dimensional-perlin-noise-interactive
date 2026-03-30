@@ -7,6 +7,7 @@ uniform vec2 iJitter;
 uniform vec3 iCameraPos;
 uniform vec3 uAttachedOffsets[10];
 uniform float uAttachedActive[10];
+uniform float uAttachedRadii[10];
 uniform vec2 uIgnoredCells[15];
 uniform int uAttachedCount;
 uniform int uIgnoredCount;
@@ -124,8 +125,10 @@ vec2 GetDistID(vec3 p, float organicDetail) {
     float sphereDist = (baseSphereDist < 2.5) ? baseSphereDist + 1.1*Noise(p - iCameraPos, oct) - 1.1 : baseSphereDist - 1.1;
     sphereDist *= 0.45;
 
-    // Infinite Spheres
+    // Infinite Spheres — find nearest candidate, then apply noise once
     float repSphereDist = 1e10;
+    vec3  repBestPos    = vec3(0.0);
+    float repBestR      = 0.6;
     vec2 cell = floor((p.xz + 7.5) / 15.0);
     for(int i = -1; i <= 1; i++) {
         for(int j = -1; j <= 1; j++) {
@@ -138,9 +141,22 @@ vec2 GetDistID(vec3 p, float organicDetail) {
             if(!ignored) {
                 vec3 jitter = GetJitter(vec3(curCell, 0.0));
                 vec3 spherePos = vec3(curCell.x * 15.0 + jitter.x, 7.5 + jitter.y * 0.5, curCell.y * 15.0 + jitter.z);
-                repSphereDist = min(repSphereDist, length(p - spherePos) - 0.6);
+                float r = mix(0.4, 0.8, Hash(vec3(curCell, 1.0)));
+                float rawDist = length(p - spherePos) - r;
+                if(rawDist < repSphereDist) {
+                    repSphereDist = rawDist;
+                    repBestPos    = spherePos;
+                    repBestR      = r;
+                }
             }
         }
+    }
+    // Apply noise to nearest candidate only
+    if(repSphereDist < 1e9) {
+        float base = repSphereDist;
+        repSphereDist = (base < repBestR + 3.0)
+            ? (base + 0.8*Noise(p - repBestPos, oct) - 0.8) * 0.45
+            : (base - 0.8) * 0.45;
     }
     float basePlaneDist = p.y - 8.0;
     float planeDist = (basePlaneDist < 12.0) ? basePlaneDist + 8.1*Noise(p*.125, oct) - 1.1*Noise(p*.25, oct) + 0.15*Noise(p, oct) + 0.1 : basePlaneDist - 1.1;
@@ -152,7 +168,7 @@ vec2 GetDistID(vec3 p, float organicDetail) {
     // Attached spheres also blend smoothly with rep+terrain
     for(int i = 0; i < 10; i++) {
         if(i >= uAttachedCount) break;
-        float dAttached = length((p - iCameraPos) - uAttachedOffsets[i]) - 0.6;
+        float dAttached = length((p - iCameraPos) - uAttachedOffsets[i]) - uAttachedRadii[i];
         repBlend = smin(repBlend, dAttached, 1.0);
     }
 
