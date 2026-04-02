@@ -53,8 +53,8 @@ export function attachNearbySphere() {
     const cellX = Math.floor((p.x + 7.5) / 15.0);
     const cellZ = Math.floor((p.z + 7.5) / 15.0);
 
-    const CHAR_DOMAIN = 2.2;   // 0.8 + 0.6 + 0.4 (smoothmin k)
-    const DOM_DOM = 1.2;   // 0.6 + 0.6
+    const CHAR_DOMAIN = 2.2;   // char_avg_noisy(1.2) + domain_smooth(0.6) + tolerance(0.4)
+    const DOM_DOM = 2.0;   // attached_avg_noisy(1.0) + domain_smooth(0.6) + tolerance(0.4)
 
     let bestSdf = 0;        // ≤ 0 means collision; track deepest overlap
     let bestSphere = null;

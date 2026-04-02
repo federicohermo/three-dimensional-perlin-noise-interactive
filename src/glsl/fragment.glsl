@@ -122,7 +122,10 @@ vec2 GetDistID(vec3 p, float organicDetail) {
 
     // Sphere FOLLOWS iCameraPos
     float baseSphereDist = length(p - iCameraPos) - 0.8;
-    float sphereDist = (baseSphereDist < 2.5) ? baseSphereDist + 1.1*Noise(p - iCameraPos, oct) - 1.1 : baseSphereDist - 1.1;
+    // Threshold raised to 10.0 (was 2.5) so the discontinuity at the near/far boundary
+    // is always outside the cluster's blend zone — the crease artifact appeared when
+    // attached spheres at 3+ units caused blend zones to straddle the old 3.3-unit boundary.
+    float sphereDist = (baseSphereDist < 10.0) ? baseSphereDist + 1.1*Noise(p - iCameraPos, oct) - 1.1 : baseSphereDist - 1.1;
     sphereDist *= 0.45;
 
     // Infinite Spheres — find nearest candidate, then apply noise once
@@ -168,8 +171,10 @@ vec2 GetDistID(vec3 p, float organicDetail) {
     // Attached spheres also blend smoothly with rep+terrain
     for(int i = 0; i < 10; i++) {
         if(i >= uAttachedCount) break;
-        float dAttached = length((p - iCameraPos) - uAttachedOffsets[i]) - uAttachedRadii[i];
-        repBlend = smin(repBlend, dAttached, 1.0);
+        vec3 attachedCenter = iCameraPos + uAttachedOffsets[i];
+        float baseA = length(p - attachedCenter) - uAttachedRadii[i];
+        float dAttached = (baseA + 0.8*Noise(p - attachedCenter, oct) - 0.8) * 0.45;
+        repBlend = smin(repBlend, dAttached, 0.4);
     }
 
     // Falling spheres blend with the scene
@@ -177,8 +182,10 @@ vec2 GetDistID(vec3 p, float organicDetail) {
         if(i >= uFallingCount) break;
         float r = uFallingRadii[i];
         if(r < 0.05) continue;  // skip near-zero radius — prevents dimple artifact
-        float dFalling = length(p - uFallingPositions[i]) - r;
-        repBlend = smin(repBlend, dFalling, r);  // k scales with r; blend shrinks cleanly
+        vec3 fallingCenter = uFallingPositions[i];
+        float baseF = length(p - fallingCenter) - r;
+        float dFalling = (baseF + 0.8*Noise(p - fallingCenter, oct) - 0.8) * 0.45;
+        repBlend = smin(repBlend, dFalling, 0.4);
     }
 
     // Character sphere: smooth blend with rep spheres
