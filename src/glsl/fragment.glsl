@@ -15,6 +15,8 @@ uniform vec3 uFallingPositions[5];
 uniform float uFallingRadii[5];
 uniform int uFallingCount;
 uniform vec2 uWindowSize;
+uniform vec2 uCharFacing;
+uniform float uAnimPhase;
 
 // ============================================================================
 // 3D Perlin Noise Raymarcher — Fragment Shader
@@ -98,6 +100,64 @@ vec4 NoiseD(vec3 p, float octaves) {
     return vec4(value * inv, totalDeriv * inv);
 }
 
+// ---- SDF Primitives ----
+float sdCapsule(vec3 p, vec3 a, vec3 b, float r) {
+    vec3 pa = p - a, ba = b - a;
+    float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
+    return length(pa - ba * h) - r;
+}
+
+// ---- Humanoid Character SDF ----
+// Origin: iCameraPos (eye level). +Y = up, fwd = uCharFacing (XZ).
+float sdCharacter(vec3 p) {
+    vec3 lp = p - iCameraPos;
+
+    vec3 fwd = normalize(vec3(uCharFacing.x, 0.0, uCharFacing.y));
+    vec3 rt  = vec3(-fwd.z, 0.0, fwd.x); // 90-deg CW in XZ
+
+    float swing = sin(uAnimPhase) * 0.18;   // arm swing amplitude
+    float legSw = sin(uAnimPhase) * 0.22;   // leg swing (opposite phase per side)
+
+    // HEAD — smooth sphere at eye level
+    float dHead = length(lp) - 0.28;
+
+    // NECK
+    float dNeck = sdCapsule(lp, vec3(0.0, -0.28, 0.0), vec3(0.0, -0.48, 0.0), 0.11);
+
+    // TORSO — light noise for organic texture
+    float dTorso = sdCapsule(lp, vec3(0.0, -0.48, 0.0), vec3(0.0, -1.05, 0.0), 0.22);
+    dTorso = (dTorso + 0.05 * (Noise(lp, 1.0) - 0.5)) * 0.92;
+
+    // ARMS — left arm swings +swing, right arm swings -swing (opposing legs)
+    vec3 lSh = rt * (-0.28) + vec3(0.0, -0.52, 0.0);
+    vec3 rSh = rt * ( 0.28) + vec3(0.0, -0.52, 0.0);
+    vec3 lEl = lSh + rt * (-0.06) + vec3(0.0, -0.42, 0.0) + fwd * ( swing);
+    vec3 rEl = rSh + rt * ( 0.06) + vec3(0.0, -0.42, 0.0) + fwd * (-swing);
+    vec3 lWr = lEl + rt * (-0.04) + vec3(0.0, -0.38, 0.0) + fwd * ( swing * 0.5);
+    vec3 rWr = rEl + rt * ( 0.04) + vec3(0.0, -0.38, 0.0) + fwd * (-swing * 0.5);
+    float dLA = min(sdCapsule(lp, lSh, lEl, 0.09), sdCapsule(lp, lEl, lWr, 0.075));
+    float dRA = min(sdCapsule(lp, rSh, rEl, 0.09), sdCapsule(lp, rEl, rWr, 0.075));
+
+    // LEGS — hip at Y=-1.05; left leg swings -legSw (opposite to left arm)
+    vec3 lHip = rt * (-0.12) + vec3(0.0, -1.05, 0.0);
+    vec3 rHip = rt * ( 0.12) + vec3(0.0, -1.05, 0.0);
+    vec3 lKn  = lHip + rt * (-0.04) + vec3(0.0, -0.38, 0.0) + fwd * (-legSw);
+    vec3 rKn  = rHip + rt * ( 0.04) + vec3(0.0, -0.38, 0.0) + fwd * ( legSw);
+    vec3 lAn  = lKn  + vec3(0.0, -0.38, 0.0) + fwd * (-legSw * 0.4);
+    vec3 rAn  = rKn  + vec3(0.0, -0.38, 0.0) + fwd * ( legSw * 0.4);
+    float dLL = min(sdCapsule(lp, lHip, lKn, 0.11), sdCapsule(lp, lKn, lAn, 0.085));
+    float dRL = min(sdCapsule(lp, rHip, rKn, 0.11), sdCapsule(lp, rKn, rAn, 0.085));
+
+    float d = dHead;
+    d = min(d, dNeck);
+    d = min(d, dTorso);
+    d = min(d, dLA);
+    d = min(d, dRA);
+    d = min(d, dLL);
+    d = min(d, dRL);
+    return d;
+}
+
 // ---- Smooth Minimum ----
 float smin( float a, float b, float k ) {
     float h = clamp( 0.5+0.5*(b-a)/k, 0.0, 1.0 );
@@ -120,13 +180,8 @@ vec2 GetDistID(vec3 p, float organicDetail) {
     oct += 2.0 * (1.0 - smoothstep(15.0, 40.0, camDist));
     oct += (1.0 - smoothstep(5.0, 15.0, camDist)) * organicDetail;
 
-    // Sphere FOLLOWS iCameraPos
-    float baseSphereDist = length(p - iCameraPos) - 0.8;
-    // Threshold raised to 10.0 (was 2.5) so the discontinuity at the near/far boundary
-    // is always outside the cluster's blend zone — the crease artifact appeared when
-    // attached spheres at 3+ units caused blend zones to straddle the old 3.3-unit boundary.
-    float sphereDist = (baseSphereDist < 10.0) ? baseSphereDist + 1.1*Noise(p - iCameraPos, oct) - 1.1 : baseSphereDist - 1.1;
-    sphereDist *= 0.45;
+    // Humanoid character at iCameraPos (eye level)
+    float sphereDist = sdCharacter(p);
 
     // Infinite Spheres — find nearest candidate, then apply noise once
     float repSphereDist = 1e10;

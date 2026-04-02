@@ -14,6 +14,7 @@ const clock = new Clock();
 const GRAVITY = -22;
 const JUMP_VEL = 12;
 let vy = 0;
+let charFacingX = 0, charFacingZ = 1;
 
 (function animate() {
     requestAnimationFrame(animate);
@@ -48,6 +49,23 @@ let vy = 0;
     if (pos.y <= groundY) {
         pos.y = groundY;
         vy = 0;
+    }
+
+    // Update character facing and animation phase from current movement direction
+    if (moved) {
+        let fx = 0, fz = 0;
+        if (keys.w) { fx += forward.x; fz += forward.z; }
+        if (keys.s) { fx -= forward.x; fz -= forward.z; }
+        if (keys.a) { fx -= right.x;   fz -= right.z; }
+        if (keys.d) { fx += right.x;   fz += right.z; }
+        const flen = Math.sqrt(fx * fx + fz * fz);
+        if (flen > 0.001) {
+            charFacingX = fx / flen;
+            charFacingZ = fz / flen;
+        }
+        uniforms.uCharFacing.value.set(charFacingX, charFacingZ);
+        // Advance walk cycle proportional to distance traveled (one full cycle ≈ 1.5 world units)
+        uniforms.uAnimPhase.value += moveSpeed * (Math.PI * 2 / 1.5);
     }
 
     if (moved || !onGround || hasActiveFalling()) resetFrameIdx();

@@ -21,4 +21,6 @@ export const uniforms = {
     uFallingRadii:     { value: new Float32Array(5) },
     uFallingCount:     { value: 0 },
     uWindowSize:       { value: new Vector2(window.innerWidth, window.innerHeight) },
+    uCharFacing:       { value: new Vector2(0, 1) },
+    uAnimPhase:        { value: 0.0 },
 };
