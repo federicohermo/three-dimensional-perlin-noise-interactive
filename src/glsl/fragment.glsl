@@ -17,6 +17,9 @@ uniform int uFallingCount;
 uniform vec2 uWindowSize;
 uniform vec2 uCharFacing;
 uniform float uAnimPhase;
+uniform float uVY;
+uniform float uMoving;
+uniform float uCamDist;
 
 // ============================================================================
 // 3D Perlin Noise Raymarcher — Fragment Shader
@@ -115,8 +118,23 @@ float sdCharacter(vec3 p) {
     vec3 fwd = normalize(vec3(uCharFacing.x, 0.0, uCharFacing.y));
     vec3 rt  = vec3(-fwd.z, 0.0, fwd.x); // 90-deg CW in XZ
 
-    float swing = sin(uAnimPhase) * 0.18;   // arm swing amplitude
-    float legSw = sin(uAnimPhase) * 0.22;   // leg swing (opposite phase per side)
+    // Jump blend factors (JUMP_VEL=12, max fall speed ~12)
+    float airFactor  = clamp(abs(uVY) / 12.0, 0.0, 1.0);
+    float upFactor   = clamp( uVY / 12.0, 0.0, 1.0);   // 0→1 while ascending
+    float downFactor = clamp(-uVY / 12.0, 0.0, 1.0);   // 0→1 while falling
+
+    // Walk cycle fades out while airborne
+    float swing = sin(uAnimPhase) * 0.18 * (1.0 - airFactor);
+    float legSw = sin(uAnimPhase) * 0.22 * (1.0 - airFactor);
+
+    // Jump arm blend factors
+    float raiseBlend = upFactor * (1.0 - uMoving) * airFactor;  // stationary ascent
+    float backBlend  = upFactor * uMoving          * airFactor;  // moving ascent
+    float jumpArmSpread = 0.08 * downFactor * (1.0 - uMoving) * airFactor; // stationary descent spread
+    // Jump legs: knees tuck up on ascent, extend slightly on descent
+    float jumpKneeY   = ( 0.22 * upFactor - 0.05 * downFactor) * airFactor;
+    float jumpKneeFwd = ( 0.15 * upFactor - 0.05 * downFactor) * airFactor;
+    float jumpAnkleY  = ( 0.15 * upFactor - 0.08 * downFactor) * airFactor;
 
     // HEAD — smooth sphere at eye level
     float dHead = length(lp) - 0.28;
@@ -128,23 +146,42 @@ float sdCharacter(vec3 p) {
     float dTorso = sdCapsule(lp, vec3(0.0, -0.48, 0.0), vec3(0.0, -1.05, 0.0), 0.22);
     dTorso = (dTorso + 0.05 * (Noise(lp, 1.0) - 0.5)) * 0.92;
 
-    // ARMS — left arm swings +swing, right arm swings -swing (opposing legs)
+    // ARMS — three complete poses blended by jump state
     vec3 lSh = rt * (-0.28) + vec3(0.0, -0.52, 0.0);
     vec3 rSh = rt * ( 0.28) + vec3(0.0, -0.52, 0.0);
-    vec3 lEl = lSh + rt * (-0.06) + vec3(0.0, -0.42, 0.0) + fwd * ( swing);
-    vec3 rEl = rSh + rt * ( 0.06) + vec3(0.0, -0.42, 0.0) + fwd * (-swing);
-    vec3 lWr = lEl + rt * (-0.04) + vec3(0.0, -0.38, 0.0) + fwd * ( swing * 0.5);
-    vec3 rWr = rEl + rt * ( 0.04) + vec3(0.0, -0.38, 0.0) + fwd * (-swing * 0.5);
+
+    // Base pose (idle/walk)
+    vec3 lElBase = lSh + rt*(-0.06)              + vec3(0.0,-0.42,0.0) + fwd*( swing);
+    vec3 rElBase = rSh + rt*( 0.06)              + vec3(0.0,-0.42,0.0) + fwd*(-swing);
+    vec3 lWrBase = lElBase + rt*(-0.04)          + vec3(0.0,-0.38,0.0) + fwd*( swing*0.5);
+    vec3 rWrBase = rElBase + rt*( 0.04)          + vec3(0.0,-0.38,0.0) + fwd*(-swing*0.5);
+
+    // Stationary-jump ascent pose (arms raised above head)
+    vec3 lElRaise = lSh + rt*(-0.12 - jumpArmSpread) + vec3(0.0,+0.22,0.0);
+    vec3 rElRaise = rSh + rt*( 0.12 + jumpArmSpread) + vec3(0.0,+0.22,0.0);
+    vec3 lWrRaise = lElRaise + rt*(-0.06 - jumpArmSpread*0.5) + vec3(0.0,+0.28,0.0);
+    vec3 rWrRaise = rElRaise + rt*( 0.06 + jumpArmSpread*0.5) + vec3(0.0,+0.28,0.0);
+
+    // Moving-jump ascent pose (both arms swept back)
+    vec3 lElBack = lSh + rt*(-0.06) + vec3(0.0,-0.42,0.0) + fwd*(-0.22);
+    vec3 rElBack = rSh + rt*( 0.06) + vec3(0.0,-0.42,0.0) + fwd*(-0.22);
+    vec3 lWrBack = lElBack + rt*(-0.04) + vec3(0.0,-0.38,0.0) + fwd*(-0.11);
+    vec3 rWrBack = rElBack + rt*( 0.04) + vec3(0.0,-0.38,0.0) + fwd*(-0.11);
+
+    vec3 lEl = mix(mix(lElBase, lElRaise, raiseBlend), lElBack, backBlend);
+    vec3 rEl = mix(mix(rElBase, rElRaise, raiseBlend), rElBack, backBlend);
+    vec3 lWr = mix(mix(lWrBase, lWrRaise, raiseBlend), lWrBack, backBlend);
+    vec3 rWr = mix(mix(rWrBase, rWrRaise, raiseBlend), rWrBack, backBlend);
     float dLA = min(sdCapsule(lp, lSh, lEl, 0.09), sdCapsule(lp, lEl, lWr, 0.075));
     float dRA = min(sdCapsule(lp, rSh, rEl, 0.09), sdCapsule(lp, rEl, rWr, 0.075));
 
-    // LEGS — hip at Y=-1.05; left leg swings -legSw (opposite to left arm)
+    // LEGS — tuck on ascent, extend on descent
     vec3 lHip = rt * (-0.12) + vec3(0.0, -1.05, 0.0);
     vec3 rHip = rt * ( 0.12) + vec3(0.0, -1.05, 0.0);
-    vec3 lKn  = lHip + rt * (-0.04) + vec3(0.0, -0.38, 0.0) + fwd * (-legSw);
-    vec3 rKn  = rHip + rt * ( 0.04) + vec3(0.0, -0.38, 0.0) + fwd * ( legSw);
-    vec3 lAn  = lKn  + vec3(0.0, -0.38, 0.0) + fwd * (-legSw * 0.4);
-    vec3 rAn  = rKn  + vec3(0.0, -0.38, 0.0) + fwd * ( legSw * 0.4);
+    vec3 lKn  = lHip + rt * (-0.04) + vec3(0.0, -0.38 + jumpKneeY, 0.0) + fwd * (-legSw + jumpKneeFwd);
+    vec3 rKn  = rHip + rt * ( 0.04) + vec3(0.0, -0.38 + jumpKneeY, 0.0) + fwd * ( legSw + jumpKneeFwd);
+    vec3 lAn  = lKn  + vec3(0.0, -0.38 + jumpAnkleY, 0.0) + fwd * (-legSw * 0.4);
+    vec3 rAn  = rKn  + vec3(0.0, -0.38 + jumpAnkleY, 0.0) + fwd * ( legSw * 0.4);
     float dLL = min(sdCapsule(lp, lHip, lKn, 0.11), sdCapsule(lp, lKn, lAn, 0.085));
     float dRL = min(sdCapsule(lp, rHip, rKn, 0.11), sdCapsule(lp, rKn, rAn, 0.085));
 
@@ -336,7 +373,7 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord ) {
     vec3 col = vec3(0.01);
     vec2 m = iMouse.xy / uWindowSize;
     vec3 ta = iCameraPos;
-    float camDist = 4.0;
+    float camDist = uCamDist;
     float yaw = -m.x * 12.5662 - 1.5707;
     float pitch = (m.y - 0.5) * 4.0;
     vec3 ro = ta + vec3(camDist * cos(yaw) * cos(pitch), camDist * sin(pitch), camDist * sin(yaw) * cos(pitch));

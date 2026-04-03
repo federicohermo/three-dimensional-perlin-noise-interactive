@@ -24,12 +24,34 @@ function hashCell(cx, cz) {
     ax = fr(ax + d); ay = fr(ay + d); az = fr(az + d);
     return fract32(fr(fr(ax) + fr(ay)) * fr(az));
 }
-function cellRadius(cx, cz) {
+export function cellRadius(cx, cz) {
     // Mirrors GLSL: mix(0.08, 0.8, pow(Hash(vec3(curCell, 1.0)), 2.0))
     const h = hashCell(cx, cz);
     return 0.08 + (0.8 - 0.08) * h * h;
 }
-function dot3(a, b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+// Convert a world-space offset to character-local (rt, Y, fwd) space
+function toLocalOffset(worldOffset) {
+    const f = uniforms.uCharFacing.value;
+    const fwd = { x: f.x, z: f.y };
+    const rt  = { x: -fwd.z, z: fwd.x };
+    return new Vector3(
+        rt.x  * worldOffset.x + rt.z  * worldOffset.z,
+        worldOffset.y,
+        fwd.x * worldOffset.x + fwd.z * worldOffset.z
+    );
+}
+
+// Convert a character-local offset back to world space
+function toWorldOffset(localOffset) {
+    const f = uniforms.uCharFacing.value;
+    const fwd = { x: f.x, z: f.y };
+    const rt  = { x: -fwd.z, z: fwd.x };
+    return new Vector3(
+        rt.x  * localOffset.x + fwd.x * localOffset.z,
+        localOffset.y,
+        rt.z  * localOffset.x + fwd.z * localOffset.z
+    );
+}
 
 function getJitter(p) {
     let px = fract(p.x * 0.1031);
@@ -45,7 +67,7 @@ function getJitter(p) {
         .multiplyScalar(4.5);
 }
 
-function getSpherePos(cellX, cellZ) {
+export function getSpherePos(cellX, cellZ) {
     const curCell = new Vector3(cellX, cellZ, 0.0);
     const jitter = getJitter(curCell);
     return new Vector3(
@@ -85,13 +107,13 @@ export function attachNearbySphere() {
             // SDF of this domain sphere against the whole cluster
             let sdf = distToChar - CHAR_DOMAIN;
             for (const s of attachedSpheres) {
-                const aPos = p.clone().add(s.offset);
+                const aPos = p.clone().add(toWorldOffset(s.offset));
                 sdf = Math.min(sdf, aPos.distanceTo(sPos) - DOM_DOM);
             }
 
             if (sdf <= 0 && (bestSphere === null || sdf < bestSdf)) {
                 bestSdf = sdf;
-                bestSphere = { offset: sPos.clone().sub(p), cell: new Vector2(cx, cz), radius: cellRadius(cx, cz) };
+                bestSphere = { offset: toLocalOffset(sPos.clone().sub(p)), cell: new Vector2(cx, cz), radius: cellRadius(cx, cz) };
             }
         }
     }
@@ -117,7 +139,7 @@ export function updateAttachmentUniforms() {
 
     for (let i = 0; i < 10; i++) {
         if (i < attachedSpheres.length) {
-            offsets[i].copy(attachedSpheres[i].offset);
+            offsets[i].copy(toWorldOffset(attachedSpheres[i].offset));
             active[i] = 1.0;
             radii[i]  = attachedSpheres[i].radius;
         } else {
@@ -152,7 +174,7 @@ export function detachLastSphere() {
     if (attachedSpheres.length === 0) return;
     if (fallingSpheres.length >= MAX_FALLING) return;
     const s = attachedSpheres.pop();
-    const worldPos = uniforms.iCameraPos.value.clone().add(s.offset);
+    const worldPos = uniforms.iCameraPos.value.clone().add(toWorldOffset(s.offset));
     fallingSpheres.push({ worldPos, originPos: worldPos.clone(), vel: new Vector3(0, -2, 0), cell: s.cell, age: 0, radius: s.radius });
     updateAttachmentUniforms();
 }
@@ -162,6 +184,7 @@ export function hasActiveFalling() {
 }
 
 export function tickFalling(dt, forward) {
+    updateAttachmentUniforms(); // always re-project local→world offsets each frame
     if (fallingSpheres.length === 0) return;
     const GRAVITY = -3.0;
 
