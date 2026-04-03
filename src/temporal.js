@@ -3,6 +3,7 @@
 
 export let temporalOn = true;
 export let frameIdx = 0;
+export let isMoving = false;
 
 export function toggleTemporal() {
     temporalOn = !temporalOn;
@@ -14,6 +15,10 @@ export function resetFrameIdx() {
 
 export function tickFrameIdx() {
     frameIdx++;
+}
+
+export function setMoving(v) {
+    isMoving = v;
 }
 
 // Halton low-discrepancy sequence for sub-pixel jitter

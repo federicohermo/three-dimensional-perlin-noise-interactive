@@ -76,7 +76,7 @@ const blitScene = new Scene();
 blitScene.add(new Mesh(new PlaneGeometry(2, 2), blitMaterial));
 
 // ---- render() — encapsulates the full ping-pong blit logic -----------------
-export function render(temporalOn, frameIdx) {
+export function render(temporalOn, frameIdx, moving = false) {
     // Pre-compute scaled and full resolutions for blit passes
     const rw = uniforms.iResolution.value.x;
     const rh = uniforms.iResolution.value.y;
@@ -84,9 +84,14 @@ export function render(temporalOn, frameIdx) {
     const fh = window.innerHeight;
 
     if (temporalOn) {
-        // Sub-pixel Halton jitter (8-frame cycle)
-        const ji = (frameIdx % 8) + 1;
-        uniforms.iJitter.value.set(halton(ji, 2) - 0.5, halton(ji, 3) - 0.5);
+        // Sub-pixel Halton jitter (8-frame cycle). Zero on frame 0 (during/after movement)
+        // so history-less frames aren't offset, which would cause visible aliasing.
+        if (frameIdx === 0) {
+            uniforms.iJitter.value.set(0, 0);
+        } else {
+            const ji = (frameIdx % 8) + 1;
+            uniforms.iJitter.value.set(halton(ji, 2) - 0.5, halton(ji, 3) - 0.5);
+        }
 
         // Ping-pong: read from histRead, write blended result to histWrite
         const histRead  = (frameIdx % 2 === 0) ? rtHistA : rtHistB;
@@ -100,7 +105,9 @@ export function render(temporalOn, frameIdx) {
         blitResolution.set(rw, rh, 1.0);
         blitMaterial.uniforms.tCurrent.value = rtScene.texture;
         blitMaterial.uniforms.tHistory.value = histRead.texture;
-        blitMaterial.uniforms.uBlend.value   = frameIdx === 0 ? 1.0 : 0.12;
+        // Higher blend (more current frame) during motion → less temporal smearing.
+        // Lower blend when still → full 8-frame accumulation for smooth AA.
+        blitMaterial.uniforms.uBlend.value   = frameIdx === 0 ? 1.0 : (moving ? 0.3 : 0.12);
         renderer.setRenderTarget(histWrite);
         renderer.render(blitScene, camera);
 

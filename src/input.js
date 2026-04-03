@@ -1,5 +1,5 @@
 import { uniforms } from './uniforms.js';
-import { toggleTemporal, resetFrameIdx } from './temporal.js';
+import { toggleTemporal, resetFrameIdx, setMoving } from './temporal.js';
 import { attachNearbySphere, detachLastSphere } from './sphereAttachment.js';
 import { renderer, resizeRenderTargets, cycleRenderScale, renderScale } from './renderer.js';
 
@@ -75,8 +75,7 @@ export function registerInputHandlers(domElement) {
 
         uniforms.iMouse.value.set(accumulatedX, accumulatedY, uniforms.iMouse.value.z, uniforms.iMouse.value.w);
 
-        // Invalidate temporal history to prevent ghosting during motion
-        resetFrameIdx();
+        setMoving(true);  // higher blend factor during camera pan
     });
 
     domElement.addEventListener('mousedown', (e) => {

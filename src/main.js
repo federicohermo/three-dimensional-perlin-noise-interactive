@@ -2,7 +2,7 @@ import './ui.js';
 import { Clock, Vector3 } from 'three';
 import { uniforms } from './uniforms.js';
 import { renderer, render } from './renderer.js';
-import { temporalOn, frameIdx, resetFrameIdx, tickFrameIdx } from './temporal.js';
+import { temporalOn, frameIdx, isMoving, resetFrameIdx, tickFrameIdx, setMoving } from './temporal.js';
 import { keys, registerInputHandlers } from './input.js';
 import { tickFalling, hasActiveFalling, getSpherePos, cellRadius } from './sphereAttachment.js';
 import { queryTerrainHeight } from './heightQuery.js';
@@ -110,11 +110,12 @@ let charFacingX = 0, charFacingZ = 1;
         uniforms.uCamDist.value = safeDist;
     }
 
-    if (moved || !onGround || hasActiveFalling()) resetFrameIdx();
+    setMoving(moved || !onGround || hasActiveFalling());
 
     tickFalling(dt, forward);
 
     // ---- Render ------------------------------------------------------------
-    render(temporalOn, frameIdx);
+    render(temporalOn, frameIdx, isMoving);
+    setMoving(false);  // reset each frame; input handlers re-set it if still active
     if (temporalOn) tickFrameIdx();
 })();
