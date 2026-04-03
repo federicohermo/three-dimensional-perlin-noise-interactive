@@ -65,7 +65,7 @@ let charFacingX = 0, charFacingZ = 1;
         }
         uniforms.uCharFacing.value.set(charFacingX, charFacingZ);
         // Advance walk cycle proportional to distance traveled (one full cycle ≈ 1.5 world units)
-        uniforms.uAnimPhase.value += moveSpeed * (Math.PI * 2 / 1.5);
+        if (onGround) uniforms.uAnimPhase.value += moveSpeed * (Math.PI * 2 / 1.5);
     }
 
     if (moved || !onGround || hasActiveFalling()) resetFrameIdx();

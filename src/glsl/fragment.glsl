@@ -199,7 +199,7 @@ vec2 GetDistID(vec3 p, float organicDetail) {
             if(!ignored) {
                 vec3 jitter = GetJitter(vec3(curCell, 0.0));
                 vec3 spherePos = vec3(curCell.x * 15.0 + jitter.x, 7.5 + jitter.y * 0.5, curCell.y * 15.0 + jitter.z);
-                float r = mix(0.4, 0.8, Hash(vec3(curCell, 1.0)));
+                float r = mix(0.08, 0.8, pow(Hash(vec3(curCell, 1.0)), 2.0));
                 float rawDist = length(p - spherePos) - r;
                 if(rawDist < repSphereDist) {
                     repSphereDist = rawDist;
@@ -220,19 +220,16 @@ vec2 GetDistID(vec3 p, float organicDetail) {
     float planeDist = (basePlaneDist < 12.0) ? basePlaneDist + 8.1*Noise(p*.125, oct) - 1.1*Noise(p*.25, oct) + 0.15*Noise(p, oct) + 0.1 : basePlaneDist - 1.1;
     planeDist *= 0.4;
 
-    // Smooth blend: repeat spheres merge into terrain
-    float repBlend = smin(repSphereDist, planeDist, 1.0);
-
-    // Attached spheres also blend smoothly with rep+terrain
+    // Merge attached spheres into domain sphere pool (before terrain blend)
     for(int i = 0; i < 10; i++) {
         if(i >= uAttachedCount) break;
         vec3 attachedCenter = iCameraPos + uAttachedOffsets[i];
         float baseA = length(p - attachedCenter) - uAttachedRadii[i];
         float dAttached = (baseA + 0.8*Noise(p - attachedCenter, oct) - 0.8) * 0.45;
-        repBlend = smin(repBlend, dAttached, 0.4);
+        repSphereDist = smin(repSphereDist, dAttached, 0.4);
     }
 
-    // Falling spheres blend with the scene
+    // Merge falling spheres into domain sphere pool (before terrain blend)
     for(int i = 0; i < 5; i++) {
         if(i >= uFallingCount) break;
         float r = uFallingRadii[i];
@@ -240,8 +237,11 @@ vec2 GetDistID(vec3 p, float organicDetail) {
         vec3 fallingCenter = uFallingPositions[i];
         float baseF = length(p - fallingCenter) - r;
         float dFalling = (baseF + 0.8*Noise(p - fallingCenter, oct) - 0.8) * 0.45;
-        repBlend = smin(repBlend, dFalling, 0.4);
+        repSphereDist = smin(repSphereDist, dFalling, 0.4);
     }
+
+    // All sphere types now share the same terrain blend (k=1.0)
+    float repBlend = smin(repSphereDist, planeDist, 1.0);
 
     // Character sphere: smooth blend with rep spheres
     float d = smin(sphereDist, repBlend, 0.4);

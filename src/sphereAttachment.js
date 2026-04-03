@@ -10,13 +10,24 @@ const FALL_LIFETIME = 1.2;
 function fract(v) { return v - Math.floor(v); }
 
 function hashCell(cx, cz) {
-    let ax = fract(cx * 1741.124), ay = fract(1.0 * 7537.13), az = fract(cz * 4157.47);
-    const d = ax*(ax+71.13) + ay*(ay+71.13) + az*(az+71.13);
-    ax += d; ay += d; az += d;
-    return fract((ax + ay) * az);
+    // Mirrors GLSL: Hash(vec3(curCell, 1.0)) where curCell = vec2(cx, cz)
+    // Must use Math.fround throughout — fract() of large floats is catastrophically
+    // sensitive to float32 vs float64 precision, causing radius diffs up to 0.64.
+    const fr = Math.fround;
+    function fract32(v) { const fv = fr(v); return fr(fv - Math.floor(fv)); }
+    let ax = fract32(fr(cx) * fr(1741.124));
+    let ay = fract32(fr(cz) * fr(7537.13));
+    let az = fract32(fr(1.0) * fr(4157.47));
+    const d = fr(fr(ax) * fr(fr(ax) + fr(71.13)))
+            + fr(fr(ay) * fr(fr(ay) + fr(71.13)))
+            + fr(fr(az) * fr(fr(az) + fr(71.13)));
+    ax = fr(ax + d); ay = fr(ay + d); az = fr(az + d);
+    return fract32(fr(fr(ax) + fr(ay)) * fr(az));
 }
 function cellRadius(cx, cz) {
-    return 0.6 + 0.4 * hashCell(cx, cz);
+    // Mirrors GLSL: mix(0.08, 0.8, pow(Hash(vec3(curCell, 1.0)), 2.0))
+    const h = hashCell(cx, cz);
+    return 0.08 + (0.8 - 0.08) * h * h;
 }
 function dot3(a, b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
 
@@ -130,7 +141,7 @@ function updateFallingUniforms() {
         if (i < fallingSpheres.length) {
             pos[i].copy(fallingSpheres[i].worldPos);
             const isDone = fallingSpheres[i].age >= FALL_LIFETIME;
-            radii[i] = isDone ? 0 : 0.6;
+            radii[i] = isDone ? 0 : fallingSpheres[i].radius;
         } else {
             radii[i] = 0;
         }
@@ -142,7 +153,7 @@ export function detachLastSphere() {
     if (fallingSpheres.length >= MAX_FALLING) return;
     const s = attachedSpheres.pop();
     const worldPos = uniforms.iCameraPos.value.clone().add(s.offset);
-    fallingSpheres.push({ worldPos, originPos: worldPos.clone(), vel: new Vector3(0, -2, 0), cell: s.cell, age: 0 });
+    fallingSpheres.push({ worldPos, originPos: worldPos.clone(), vel: new Vector3(0, -2, 0), cell: s.cell, age: 0, radius: s.radius });
     updateAttachmentUniforms();
 }
 
