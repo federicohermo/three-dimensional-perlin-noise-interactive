@@ -6,7 +6,6 @@ uniform vec4 iMouse;
 uniform vec2 iJitter;
 uniform vec3 iCameraPos;
 uniform vec3 uAttachedOffsets[10];
-uniform float uAttachedActive[10];
 uniform float uAttachedRadii[10];
 uniform vec2 uIgnoredCells[15];
 uniform int uAttachedCount;
@@ -20,6 +19,7 @@ uniform float uAnimPhase;
 uniform float uVY;
 uniform float uMoving;
 uniform float uCamDist;
+uniform vec3  uSunDir;   // normalized, points from ground toward sun
 
 // ============================================================================
 // 3D Perlin Noise Raymarcher — Fragment Shader
@@ -38,70 +38,14 @@ float Hash(vec3 p) {
 
 #include './terrain_funcs.glsl';
 
-float HashV(vec3 p) {
-    p = fract(p * vec3(0.1031, 0.1030, 0.0973));
-    p += dot(p, p.yxz + 33.33);
-    return fract((p.x + p.y) * p.z);
-}
-
-vec4 vNoised(vec3 p) {
-    vec3 i = floor(p);
-    vec3 f = fract(p);
-    vec3 u  = f * f * (3.0 - 2.0 * f);
-    vec3 du = 6.0 * f * (1.0 - f);
-
-    float n000 = HashV(i + vec3(0,0,0)); float n100 = HashV(i + vec3(1,0,0));
-    float n010 = HashV(i + vec3(0,1,0)); float n110 = HashV(i + vec3(1,1,0));
-    float n001 = HashV(i + vec3(0,0,1)); float n101 = HashV(i + vec3(1,0,1));
-    float n011 = HashV(i + vec3(0,1,1)); float n111 = HashV(i + vec3(1,1,1));
-
-    float b = n100-n000, c = n010-n000, d = n001-n000;
-    float e = n110-n010-n100+n000, g = n101-n001-n100+n000;
-    float h = n011-n001-n010+n000;
-    float k = n111-n011-n101-n110+n100+n010+n001-n000;
-
-    float n = n000 + b*u.x + c*u.y + d*u.z
-            + e*u.x*u.y + g*u.x*u.z + h*u.y*u.z + k*u.x*u.y*u.z;
-
-    vec3 deriv = du * vec3(
-        b + e*u.y + g*u.z + k*u.y*u.z,
-        c + e*u.x + h*u.z + k*u.x*u.z,
-        d + g*u.x + h*u.y + k*u.x*u.y
-    );
-    return vec4(n, deriv);
-}
-
 vec3 GetJitter(vec3 p) {
     p = fract(p * vec3(.1031, .1030, .0973));
     p += dot(p, p.yxz + 33.33);
     vec3 h = fract((p.xxy + p.yxx) * p.zyx);
-    return normalize(-1.0 + 2.0 * h) * 4.5;
+    return normalize(-1.0 + 2.0 * h) * 3.5;
 }
 
 
-vec4 NoiseD(vec3 p, float octaves) {
-    mat3 m3  = mat3( 0.00,  0.80,  0.60, -0.80,  0.36, -0.48, -0.60, -0.48,  0.64);
-    mat3 m3T = mat3( 0.00, -0.80, -0.60,  0.80,  0.36, -0.48,  0.60, -0.48,  0.64);
-    float value = 0.0, nf = 0.0, scale = 0.5, freq = 1.0;
-    vec3 dsum = vec3(0.0), totalDeriv = vec3(0.0);
-    for (int i = 0; i < 4; i++) {
-        float fi = float(i);
-        if (fi >= octaves) break;
-        float weight = scale * min(1.0, octaves - fi);
-        vec4 nd = vNoised(p);
-        vec3 dWorld = (m3T * nd.yzw) / freq;
-        float erosion = 1.0 / (1.0 + dot(dsum, dsum));
-        float w = weight * erosion;
-        value += nd.x * w;
-        nf += w;
-        dsum += weight * dWorld;
-        totalDeriv += w * dWorld;
-        p = m3 * p * 2.0;
-        scale *= 0.5; freq *= 2.0;
-    }
-    float inv = 1.0 / max(0.0001, nf);
-    return vec4(value * inv, totalDeriv * inv);
-}
 
 // ---- SDF Primitives ----
 float sdCapsule(vec3 p, vec3 a, vec3 b, float r) {
@@ -217,8 +161,8 @@ vec2 GetDistID(vec3 p, float organicDetail) {
     oct += 2.0 * (1.0 - smoothstep(15.0, 40.0, camDist));
     oct += (1.0 - smoothstep(5.0, 15.0, camDist)) * organicDetail;
 
-    // Humanoid character at iCameraPos (eye level)
-    float sphereDist = sdCharacter(p);
+    // Humanoid character — skip expensive SDF when point is clearly outside character bounds
+    float sphereDist = (camDist > 3.5) ? 1e10 : sdCharacter(p);
 
     // Infinite Spheres — find nearest candidate, then apply noise once
     float repSphereDist = 1e10;
@@ -253,9 +197,22 @@ vec2 GetDistID(vec3 p, float organicDetail) {
             ? (base + 0.8*Noise(p - repBestPos, oct) - 0.8) * 0.45
             : (base - 0.8) * 0.45;
     }
+    // Biome blend — slow noise in XZ defines character of each region
+    float biomeN  = sNoise(vec3(p.x * 0.018, 0.5, p.z * 0.018));
+    float volcanic = smoothstep(0.60, 0.75, biomeN); // spiky, dramatic
+    float flatland = smoothstep(0.35, 0.20, biomeN); // open plains
+    // noiseAmp: 0.35 (flat) → 1.0 (normal) → 1.65 (volcanic)
+    float noiseAmp = mix(mix(1.0, 0.35, flatland), 1.65, volcanic);
+
     float basePlaneDist = p.y - 8.0;
-    float planeDist = (basePlaneDist < 12.0) ? basePlaneDist + 8.1*Noise(p*.125, oct) - 1.1*Noise(p*.25, oct) + 0.15*Noise(p, oct) + 0.1 : basePlaneDist - 1.1;
+    float planeDist = (basePlaneDist < 12.0)
+        ? basePlaneDist + noiseAmp * (8.1*Noise(p*.125, oct) - 1.1*Noise(p*.25, oct) + 0.15*Noise(p, oct)) + 0.1
+        : basePlaneDist - 1.1;
     planeDist *= 0.4;
+
+    // 2A: Water / lava fills deep valleys
+    float waterDist = (p.y - 3.5) * 0.4;
+    planeDist = min(planeDist, waterDist);
 
     // Merge attached spheres into domain sphere pool (before terrain blend)
     for(int i = 0; i < 10; i++) {
@@ -274,7 +231,7 @@ vec2 GetDistID(vec3 p, float organicDetail) {
         vec3 fallingCenter = uFallingPositions[i];
         float baseF = length(p - fallingCenter) - r;
         float dFalling = (baseF + 0.8*Noise(p - fallingCenter, oct) - 0.8) * 0.45;
-        repSphereDist = smin(repSphereDist, dFalling, 0.4);
+        repSphereDist = smin(repSphereDist, dFalling, 0.7); // 2C: larger k → dramatic merge
     }
 
     // All sphere types now share the same terrain blend (k=1.0)
@@ -309,24 +266,58 @@ vec3 GetNormal(vec3 p, float organicDetail, float rayDist) {
 }
 
 // ---- Aesthetics ----
-vec3 GetSky(vec3 rd) {
-    float sun = max(0.0, dot(rd, normalize(vec3(-5.0, 5.0, -1.0))));
-    vec3 col = mix(vec3(0.3, 0.45, 0.6), vec3(0.05, 0.15, 0.3), rd.y * 0.5 + 0.5);
+// Sky without stars/moon — used for fog blending on surfaces
+vec3 GetSkyFog(vec3 rd) {
+    float sunEl  = uSunDir.y;
+    float sunDot = max(0.0, dot(rd, uSunDir));
+    float dayT   = clamp(sunEl * 4.0 + 0.5, 0.0, 1.0);
+    // horizT: only non-zero near the actual horizon crossing, zero well into night
+    float horizT = exp(-8.0 * abs(sunEl)) * smoothstep(-0.15, 0.05, sunEl);
+
+    vec3 dayCol  = mix(vec3(0.3, 0.45, 0.6), vec3(0.05, 0.15, 0.3), rd.y * 0.5 + 0.5);
+    vec3 nightCol = vec3(0.005, 0.005, 0.02);
+    vec3 col = mix(nightCol, dayCol, dayT);
+
+    // Sunset tint only while sun is near/above horizon
+    vec3 sunsetCol = mix(vec3(0.9, 0.4, 0.1), vec3(0.85, 0.65, 0.25), clamp(sunEl * 4.0, 0.0, 1.0));
+    col = mix(col, sunsetCol, horizT * smoothstep(0.3, 0.0, abs(rd.y)));
+
     float haze = exp(-10.0 * abs(rd.y));
-    col = mix(col, vec3(0.8, 0.85, 0.9), haze * 0.5);
-    col += vec3(1.0, 0.8, 0.4) * pow(sun, 64.0);
-    col += vec3(1.0, 0.9, 0.7) * pow(sun, 8.0) * 0.2;
+    vec3 hazeCol = mix(mix(vec3(0.8, 0.85, 0.9), vec3(0.75, 0.5, 0.2), horizT), nightCol, 1.0 - dayT);
+    col = mix(col, hazeCol, haze * 0.5);
+
+    // Sun disc and glow — fade out as sun dips below horizon so it doesn't bleed
+    // through fog onto terrain surfaces when the sun is underground.
+    float sunVisible = smoothstep(-0.08, 0.04, sunEl);
+    col += vec3(1.0, 0.8, 0.4) * pow(sunDot, 64.0) * sunVisible;
+    col += vec3(1.0, 0.9, 0.7) * pow(sunDot, 8.0) * 0.2 * sunVisible;
+    return col;
+}
+
+// Full sky with stars and moon — only for rays that miss geometry
+vec3 GetSky(vec3 rd) {
+    vec3 col = GetSkyFog(rd);
+    float sunEl = uSunDir.y;
+    float nightFactor = smoothstep(0.05, -0.1, sunEl);
+
+    float starNoise = Hash(floor(rd * 180.0 + 0.5));
+    col += step(0.997, starNoise) * nightFactor * 0.9;
+
+    float moonDot = max(0.0, dot(rd, -uSunDir));
+    col += vec3(0.8, 0.85, 1.0) * pow(moonDot, 2000.0) * 1.8 * nightFactor;
+    col += vec3(0.5, 0.55, 0.7) * pow(moonDot, 120.0) * 0.08 * nightFactor;
+
     return col;
 }
 
 // ---- Shadows & AO ----
 float CastShadow(vec3 ro, vec3 rd, float tmin, float tmax, float k, float distToCam) {
     float res = 1.0; float t = tmin;
-    int steps = (distToCam < 12.0) ? 48 : 24;
+    int steps = (distToCam < 12.0) ? 32 : 16;
     tmax = (distToCam < 12.0) ? tmax : min(tmax, 6.0);
-    for (int i = 0; i < 48; i++) {
+    for (int i = 0; i < 32; i++) {
         if(i >= steps || t >= tmax) break;
-        float h = GetDist(ro + t*rd, 4.0);
+        float h = GetDist(ro + t*rd, 1.5);
         if (h < SURFACE_DIST) {
             if (t < 0.25) { t += 0.1; continue; }  // escape LOD mismatch zone
             return 0.0;
@@ -350,26 +341,83 @@ float GetAO(vec3 p, vec3 n) {
 }
 
 vec3 GetLight(vec3 p, float organicDetail, vec3 rd, float rayDist) {
-    vec3 lightPos = vec3(-5.0, 15.0, -1.0);
-    vec3 l = normalize(lightPos - p);
+    vec3 l = uSunDir;  // directional light (normalized in JS)
+    float sunEl = uSunDir.y;
+
+    // Light color: warm white at noon, orange at sunrise/sunset
+    float horizT    = exp(-4.0 * abs(sunEl));
+    vec3  sunColor  = mix(vec3(1.0, 0.9, 0.8), vec3(1.0, 0.45, 0.1), horizT);
+    float sunIntens = clamp(sunEl * 3.0 + 0.15, 0.0, 1.0); // smooth day/night ramp
+    float distToCam2 = length(p - iCameraPos);
+
+    // 2A: Water / lava surface — detected by height
+    if (p.y < 3.65) {
+        float biomeN  = sNoise(vec3(p.x * 0.018, 0.5, p.z * 0.018));
+        float volcanic = smoothstep(0.60, 0.75, biomeN);
+
+        // Animated wave normals (water only; lava is viscous → less ripple)
+        vec3 wn = vec3(0.0, 1.0, 0.0);
+        wn.x += (sNoise(p * 2.2 + vec3(iTime * 0.55, 0.0, iTime * 0.32)) - 0.5) * 0.35 * (1.0 - volcanic);
+        wn.z += (sNoise(p * 2.2 + vec3(iTime * 0.32, 0.0, -iTime * 0.5)) - 0.5) * 0.35 * (1.0 - volcanic);
+        wn = normalize(wn);
+
+        float diff   = clamp(dot(wn, l), 0.0, 1.0);
+        float shadow = CastShadow(p + vec3(0.0, 0.1, 0.0), l, 0.02, 12.0, 8.0, distToCam2);
+        vec3  hv     = normalize(l - rd);
+        float specBase = pow(clamp(dot(wn, hv), 0.0, 1.0), 48.0) * sunIntens;
+        float fresnel  = pow(1.0 - max(0.0, dot(wn, -rd)), 3.0);
+        float spec     = mix(specBase, specBase * 2.5, fresnel);
+
+        // Lava surface pattern
+        float lavaN  = max(0.0, sNoise(p * 1.4 - vec3(0.0, iTime * 0.04, 0.0)));
+        float lavaGlow = smoothstep(0.25, 0.7, lavaN);
+
+        // Terrain depth below water: evaluate terrain SDF at surface without water plane
+        // Same noise as GetDistID but oct=1 (cheap), no water min() → gives actual floor distance
+        float flatland = smoothstep(0.35, 0.20, biomeN);
+        float noiseAmp = mix(mix(1.0, 0.35, flatland), 1.65, volcanic);
+        float basePD   = p.y - 8.0;  // ≈ -4.5 at water surface (y=3.5)
+        float terrainPD = (basePD + noiseAmp * (8.1*Noise(p*0.125, 1.0) - 1.1*Noise(p*0.25, 1.0)) + 0.1) * 0.4;
+        float waterDepth = max(0.0, -terrainPD);  // 0=very shallow, larger=deeper floor
+        float depthT  = 1.0 - exp(-waterDepth * 0.8);
+        vec3  shallow = vec3(0.10, 0.32, 0.28);
+        vec3  deep    = vec3(0.01, 0.05, 0.17);
+        vec3  waterBase = mix(shallow, deep, depthT);
+
+        vec3 waterCol = waterBase * (diff * shadow * sunIntens * 0.4 + 0.08)
+                      + vec3(0.65, 0.85, 1.0) * spec;
+        vec3 lavaCol  = vec3(0.18, 0.03, 0.0)
+                      + vec3(1.0, 0.42, 0.04) * lavaGlow * 1.2
+                      + vec3(0.9, 0.25, 0.0)  * spec * 0.6;
+
+        return mix(waterCol, lavaCol, volcanic);
+    }
 
     vec3 n = GetNormal(p, organicDetail, rayDist);
     float diff = clamp(dot(n, l), 0., 1.);
-    float distToCam = length(p - iCameraPos);
-    float shadow = CastShadow(p + n * 0.2, l, 0.02, 12.0, 8.0, distToCam);
-    vec3 col = vec3(1.0, 0.9, 0.8) * diff * shadow;
+    float shadow = CastShadow(p + n * 0.2, l, 0.02, 12.0, 8.0, distToCam2);
+    vec3 col = sunColor * sunIntens * diff * shadow;
+
+    // Sky ambient: blue by day, dark by night; moonlight adds a faint blue tint
+    float dayT = clamp(sunEl * 4.0 + 0.5, 0.0, 1.0);
+    float nightT = clamp(-sunEl * 4.0 + 0.3, 0.0, 1.0);
     float sca = clamp(0.5 + 0.5 * n.y, 0.0, 1.0);
-    col += (mix(vec3(0.2, 0.5, 1.0), vec3(0.1, 0.05, 0.02), 1.0-sca)) * 0.2;
-    float ao = GetAO(p, n);
+    vec3 skyAmb    = mix(vec3(0.03, 0.03, 0.06), vec3(0.2, 0.5, 1.0), dayT);
+    vec3 groundAmb = mix(vec3(0.01, 0.01, 0.02), vec3(0.1, 0.05, 0.02), dayT);
+    col += mix(groundAmb, skyAmb, sca) * 0.2;
+    col += vec3(0.05, 0.06, 0.12) * nightT * sca; // moonlight fill
+
+    float ao = (distToCam2 < 18.0) ? GetAO(p, n) : 1.0;
     col *= ao;
     vec3 h = normalize(l - rd);
     float spec = pow(clamp(dot(n, h), 0.0, 1.0), 32.0);
-    col += vec3(0.3) * spec * shadow * ao;
+    col += vec3(0.3) * spec * shadow * ao * sunIntens;
     return col;
 }
 
 void mainImage( out vec4 fragColor, in vec2 fragCoord ) {
-    vec2 uv = (fragCoord + iJitter - .5*iResolution.xy)/iResolution.y;
+    vec2 uv  = (fragCoord + iJitter - .5*iResolution.xy)/iResolution.y;
+    vec2 uv0 = (fragCoord            - .5*iResolution.xy)/iResolution.y; // unjittered
     vec3 col = vec3(0.01);
     vec2 m = iMouse.xy / uWindowSize;
     vec3 ta = iCameraPos;
@@ -380,20 +428,27 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord ) {
     vec3 cw = normalize(ta - ro);
     vec3 cu = normalize(cross(vec3(0,1,0), cw));
     vec3 cv = normalize(cross(cw, cu));
-    vec3 rd = normalize(uv.x * cu + uv.y * cv + 0.5 * cw);
+    vec3 rd  = normalize(uv.x  * cu + uv.y  * cv + 0.5 * cw);
+    vec3 rd0 = normalize(uv0.x * cu + uv0.y * cv + 0.5 * cw); // unjittered ray for sky
     float oD = sin(ro.x*0.13 + ro.z*0.21)*0.5 + sin(ro.z*0.17 - ro.x*0.11)*0.5;
     float organicDetail = clamp(oD + 0.5, 0.0, 1.0);
     float d = RayMarch(ro, rd, organicDetail, fragCoord);
     if(d > 0.0) {
         vec3 p = ro + rd * d;
+        bool isWater = (p.y < 3.65);
+
         col = GetLight(p, organicDetail, rd, d);
+
+        // Distance fog — applies to all surfaces including water/lava (fades horizon edge)
         float fog = 1.0 - exp(-0.05 * max(0.0, d - 6.0));
-        col = mix(col, GetSky(rd), fog);
+        col = mix(col, GetSkyFog(rd), fog);
+
     } else {
-        col = GetSky(rd);
+        col = GetSky(rd0);  // unjittered ray → stars don't wiggle with jitter
     }
     col = pow(col, vec3(0.4545));
-    fragColor = vec4(col, 1.0);
+    // alpha=1 terrain hit, alpha=0 sky — blit shader uses this to skip history on sky pixels
+    fragColor = vec4(col, d > 0.0 ? 1.0 : 0.0);
 }
 
 void main() {

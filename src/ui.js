@@ -3,8 +3,8 @@ import './ui.css';
 document.body.insertAdjacentHTML('afterbegin', `
 <div id="start">
     <div id="meta-tl">PERLIN · 001</div>
-    <div id="meta-tr">EVEN FIELD / 3D RAYMARCHER</div>
-    <h1 id="title">EVEN<br>FIELD</h1>
+    <div id="meta-tr">SDF DEMO / 3D RAYMARCHER</div>
+    <h1 id="title">SDF<br>DEMO</h1>
     <nav id="controls">
         <span>WASD — MOVE</span>
         <span>SPACE — JUMP</span>
@@ -20,8 +20,13 @@ document.body.insertAdjacentHTML('afterbegin', `
 `);
 
 const overlay = document.getElementById('start');
+const btn = document.getElementById('enter-btn');
 
-function hideOverlay() {
+// Disabled until shaders are compiled
+btn.textContent = 'LOADING...';
+btn.disabled = true;
+
+export function hideOverlay() {
     overlay.style.opacity = '0';
     overlay.style.pointerEvents = 'none';
     setTimeout(() => overlay.style.display = 'none', 650);
@@ -33,7 +38,14 @@ function showOverlay() {
     requestAnimationFrame(() => overlay.style.opacity = '1');
 }
 
-document.getElementById('enter-btn').addEventListener('click', hideOverlay);
+export function setReady() {
+    btn.textContent = 'ENTER';
+    btn.disabled = false;
+}
+
+export function onEnter() {
+    return new Promise(resolve => btn.addEventListener('click', resolve, { once: true }));
+}
 
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {

@@ -1,31 +1,52 @@
-import './ui.js';
-import { Clock, Vector3 } from 'three';
-import { uniforms } from './uniforms.js';
-import { renderer, render } from './renderer.js';
-import { temporalOn, frameIdx, isMoving, resetFrameIdx, tickFrameIdx, setMoving } from './temporal.js';
+import { setReady, onEnter, hideOverlay } from './ui.js';
+import { Vector3 } from 'three';
+import { uniforms, getCameraAngles } from './uniforms.js';
+import { renderer, render, compileShaders } from './renderer.js';
+import { temporalOn, frameIdx, isMoving, tickFrameIdx, setMoving } from './temporal.js';
 import { keys, registerInputHandlers } from './input.js';
-import { tickFalling, hasActiveFalling, getSpherePos, cellRadius } from './sphereAttachment.js';
+import { tickFalling, hasActiveFalling, getSpherePos, cellRadius, worldToCell } from './sphereAttachment.js';
 import { queryTerrainHeight } from './heightQuery.js';
 
 registerInputHandlers(renderer.domElement);
 
-const clock = new Clock();
+let lastTime = performance.now();
 
 const GRAVITY = -22;
 const JUMP_VEL = 12;
 let vy = 0;
 let charFacingX = 0, charFacingZ = 1;
 
-(function animate() {
+async function init() {
+    await compileShaders();
+    setReady();
+    await onEnter();
+    hideOverlay();
+    uniforms.iCameraPos.value.y = queryTerrainHeight(uniforms.iCameraPos.value.x, uniforms.iCameraPos.value.z) + 2.0;
+    lastTime = performance.now();
+    animate();
+}
+init();
+
+function animate() {
     requestAnimationFrame(animate);
 
-    const dt = clock.getDelta();
-    uniforms.iTime.value = clock.getElapsedTime();
+    const now = performance.now();
+    const dt = (now - lastTime) / 1000;
+    lastTime = now;
+    const elapsed = now / 1000;
+    uniforms.iTime.value = elapsed;
+
+    // Day/night cycle: sun orbits in a tilted plane (full cycle ≈ 2 min)
+    const sunAngle = elapsed * 0.008;
+    uniforms.uSunDir.value.set(
+        -0.5,
+        Math.sin(sunAngle),
+        -Math.cos(sunAngle)
+    ).normalize();
 
     // ---- WASD Movement -----------------------------------------------------
     const moveSpeed = 5.0 * dt;
-    const m = uniforms.iMouse.value;
-    const yaw = -(m.x / window.innerWidth) * 12.5662 - 1.5707;
+    const { yaw } = getCameraAngles();
 
     // Forward = direction from camera to target (ta - ro); since ro = ta + offset, forward = -offset_dir
     const forward = new Vector3(-Math.cos(yaw), 0, -Math.sin(yaw));
@@ -75,17 +96,14 @@ let charFacingX = 0, charFacingZ = 1;
     {
         const MAX_CAM = 4.0;
         const MIN_CAM = 0.5;
-        const m = uniforms.iMouse.value;
-        const camYaw = -(m.x / window.innerWidth) * 12.5662 - 1.5707;
-        const camPitch = (m.y / window.innerHeight - 0.5) * 4.0;
+        const { yaw: camYaw, pitch: camPitch } = getCameraAngles();
         const cosPitch = Math.cos(camPitch);
         const camDirX = Math.cos(camYaw) * cosPitch;
         const camDirY = Math.sin(camPitch);
         const camDirZ = Math.sin(camYaw) * cosPitch;
         let safeDist = MAX_CAM;
         const px = pos.x, py = pos.y, pz = pos.z;
-        const cellX = Math.floor((px + 7.5) / 15.0);
-        const cellZ = Math.floor((pz + 7.5) / 15.0);
+        const { cellX, cellZ } = worldToCell(px, pz);
         for (let i = -1; i <= 1; i++) {
             for (let j = -1; j <= 1; j++) {
                 const cx = cellX + i, cz = cellZ + j;
@@ -118,4 +136,4 @@ let charFacingX = 0, charFacingZ = 1;
     render(temporalOn, frameIdx, isMoving);
     setMoving(false);  // reset each frame; input handlers re-set it if still active
     if (temporalOn) tickFrameIdx();
-})();
+}

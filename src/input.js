@@ -1,4 +1,5 @@
-import { uniforms } from './uniforms.js';
+import { Vector3 } from 'three';
+import { uniforms, getCameraAngles } from './uniforms.js';
 import { toggleTemporal, resetFrameIdx, setMoving } from './temporal.js';
 import { attachNearbySphere, detachLastSphere } from './sphereAttachment.js';
 import { renderer, resizeRenderTargets, cycleRenderScale, renderScale } from './renderer.js';
@@ -34,7 +35,20 @@ export function registerInputHandlers(domElement) {
             attachNearbySphere();
         }
         if (k === 'q') {
-            detachLastSphere();
+            const moving = keys.w || keys.a || keys.s || keys.d;
+            if (moving) {
+                // Moving: launch in camera look direction
+                const { yaw, pitch } = getCameraAngles();
+                const launchDir = new Vector3(
+                    -Math.cos(yaw) * Math.cos(pitch),
+                    -Math.sin(pitch) + 0.15,
+                    -Math.sin(yaw) * Math.cos(pitch)
+                ).normalize().multiplyScalar(12.0);
+                detachLastSphere(launchDir);
+            } else {
+                // Still: small upward toss
+                detachLastSphere(new Vector3(0, 1.5, 0));
+            }
             resetFrameIdx();
         }
     });

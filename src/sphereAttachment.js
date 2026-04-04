@@ -1,10 +1,11 @@
 import { Vector2, Vector3 } from 'three';
-import { uniforms } from './uniforms.js';
+import { uniforms, getCameraAngles } from './uniforms.js';
+import { queryTerrainHeight } from './heightQuery.js';
 
 const attachedSpheres = []; // { offset: Vector3, cell: Vector2 }
-const fallingSpheres  = []; // { worldPos: Vector3, vel: Vector3, cell: Vector2, age: number }
-const MAX_FALLING   = 5;
-const FALL_LIFETIME = 1.2;
+const fallingSpheres  = []; // { worldPos, vel, cell, age, radius, landed, groundY, groundQueryTimer }
+const MAX_FALLING    = 5;
+const FALL_LIFETIME  = 12.0; // fallback max lifetime
 
 // ---- JS mirrors of the GLSL helper functions -------------------------------
 function fract(v) { return v - Math.floor(v); }
@@ -28,6 +29,9 @@ export function cellRadius(cx, cz) {
     // Mirrors GLSL: mix(0.08, 0.8, pow(Hash(vec3(curCell, 1.0)), 2.0))
     const h = hashCell(cx, cz);
     return 0.08 + (0.8 - 0.08) * h * h;
+}
+export function worldToCell(x, z) {
+    return { cellX: Math.floor((x + 7.5) / 15.0), cellZ: Math.floor((z + 7.5) / 15.0) };
 }
 // Convert a world-space offset to character-local (rt, Y, fwd) space
 function toLocalOffset(worldOffset) {
@@ -64,7 +68,7 @@ function getJitter(p) {
     const resZ = fract((py + px) * px);
     return new Vector3(-1.0 + 2.0 * resX, -1.0 + 2.0 * resY, -1.0 + 2.0 * resZ)
         .normalize()
-        .multiplyScalar(4.5);
+        .multiplyScalar(3.5);
 }
 
 export function getSpherePos(cellX, cellZ) {
@@ -83,8 +87,7 @@ export function attachNearbySphere() {
     if (attachedSpheres.length >= 10) return;
 
     const p = uniforms.iCameraPos.value;
-    const cellX = Math.floor((p.x + 7.5) / 15.0);
-    const cellZ = Math.floor((p.z + 7.5) / 15.0);
+    const { cellX, cellZ } = worldToCell(p.x, p.z);
 
     const CHAR_DOMAIN = 2.2;   // char_avg_noisy(1.2) + domain_smooth(0.6) + tolerance(0.4)
     const DOM_DOM = 2.0;   // attached_avg_noisy(1.0) + domain_smooth(0.6) + tolerance(0.4)
@@ -131,7 +134,6 @@ export function attachNearbySphere() {
 
 export function updateAttachmentUniforms() {
     const offsets = uniforms.uAttachedOffsets.value;
-    const active  = uniforms.uAttachedActive.value;
     const radii   = uniforms.uAttachedRadii.value;
     const ignored = uniforms.uIgnoredCells.value;
 
@@ -140,10 +142,8 @@ export function updateAttachmentUniforms() {
     for (let i = 0; i < 10; i++) {
         if (i < attachedSpheres.length) {
             offsets[i].copy(toWorldOffset(attachedSpheres[i].offset));
-            active[i] = 1.0;
             radii[i]  = attachedSpheres[i].radius;
         } else {
-            active[i] = 0.0;
             radii[i]  = 0.0;
         }
     }
@@ -162,41 +162,37 @@ function updateFallingUniforms() {
     for (let i = 0; i < 5; i++) {
         if (i < fallingSpheres.length) {
             pos[i].copy(fallingSpheres[i].worldPos);
-            const isDone = fallingSpheres[i].age >= FALL_LIFETIME;
-            radii[i] = isDone ? 0 : fallingSpheres[i].radius;
+            radii[i] = fallingSpheres[i].radius;
         } else {
             radii[i] = 0;
         }
     }
 }
 
-export function detachLastSphere() {
+export function detachLastSphere(launchVel) {
     if (attachedSpheres.length === 0) return;
     if (fallingSpheres.length >= MAX_FALLING) return;
     const s = attachedSpheres.pop();
     const worldPos = uniforms.iCameraPos.value.clone().add(toWorldOffset(s.offset));
-    fallingSpheres.push({ worldPos, originPos: worldPos.clone(), vel: new Vector3(0, -2, 0), cell: s.cell, age: 0, radius: s.radius });
+    const vel = launchVel ? launchVel.clone() : new Vector3(0, 1.5, 0);
+    fallingSpheres.push({ worldPos, vel, cell: s.cell, age: 0, radius: s.radius, landed: false, groundY: 0, groundQueryTimer: 0 });
     updateAttachmentUniforms();
 }
 
 export function hasActiveFalling() {
-    return fallingSpheres.some(s => s.age < FALL_LIFETIME);
+    return fallingSpheres.some(s => !s.landed);
 }
 
 export function tickFalling(dt, forward) {
     updateAttachmentUniforms(); // always re-project local→world offsets each frame
     if (fallingSpheres.length === 0) return;
-    const GRAVITY = -3.0;
+    const GRAVITY = -8.0;
 
     // iCameraPos is the orbit look-at target (ta), not the eye.
     // Reconstruct actual eye position (ro) to correctly classify behind-camera.
     const ta = uniforms.iCameraPos.value;
-    const m  = uniforms.iMouse.value;
-    const mNormX = m.x / uniforms.uWindowSize.value.x;
-    const mNormY = m.y / uniforms.uWindowSize.value.y;
-    const yaw    = -mNormX * 12.5662 - 1.5707;
-    const pitch  = (mNormY - 0.5) * 4.0;
-    const CAMDIST = 4.0;
+    const { yaw, pitch } = getCameraAngles();
+    const CAMDIST = uniforms.uCamDist.value;
     const ro = ta.clone().add(new Vector3(
         CAMDIST * Math.cos(yaw) * Math.cos(pitch),
         CAMDIST * Math.sin(pitch),
@@ -204,18 +200,38 @@ export function tickFalling(dt, forward) {
     ));
 
     for (const s of fallingSpheres) {
-        if (s.age < FALL_LIFETIME) {
-            s.age += dt;
+        s.age += dt;
+        if (!s.landed) {
+            // Air damping — slight resistance makes arc feel natural (Three.js FPS pattern)
+            s.vel.addScaledVector(s.vel, Math.exp(-0.8 * dt) - 1);
+
             s.vel.y += GRAVITY * dt;
             s.worldPos.addScaledVector(s.vel, dt);
+
+            // Query actual terrain height — only when descending and near ground
+            s.groundQueryTimer -= dt;
+            if (s.vel.y < 0 && s.worldPos.y < 15 && s.groundQueryTimer <= 0) {
+                s.groundY = queryTerrainHeight(s.worldPos.x, s.worldPos.z) + s.radius * 0.5;
+                s.groundQueryTimer = 0.1; // throttle: max once per 100ms
+            }
+
+            // Bounce on landing
+            if (s.worldPos.y < s.groundY) {
+                s.worldPos.y = s.groundY;
+                s.vel.y = Math.abs(s.vel.y) * 0.55;  // restitution
+                s.vel.x *= 0.75;
+                s.vel.z *= 0.75;
+                if (s.vel.y < 0.4) { s.vel.set(0, 0, 0); s.landed = true; }
+            }
         }
     }
 
-    // Remove only when animation done AND sphere is behind camera
+    // Remove when landed AND out of view, or after max lifetime
     for (let i = fallingSpheres.length - 1; i >= 0; i--) {
         const s = fallingSpheres[i];
-        if (s.age >= FALL_LIFETIME) {
-            const dir = s.originPos.clone().sub(ro);
+        if (s.age >= FALL_LIFETIME) { fallingSpheres.splice(i, 1); continue; }
+        if (s.landed) {
+            const dir = s.worldPos.clone().sub(ro);
             const dist = dir.length();
             if (dist > 8.0 && dir.dot(forward) / dist < -0.2) {
                 fallingSpheres.splice(i, 1);

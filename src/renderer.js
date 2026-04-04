@@ -31,7 +31,7 @@ renderer.setPixelRatio(1);  // Capped at 1x to avoid 4x pixel count on HiDPI scr
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
-export const camera = new OrthographicCamera(-1, 1, 1, -1, 0, 1);
+const camera = new OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
 // ---- Main scene (fullscreen raymarcher quad) --------------------------------
 const scene = new Scene();
@@ -135,6 +135,21 @@ export function render(temporalOn, frameIdx, moving = false) {
             renderer.render(scene, camera);
         }
     }
+}
+
+// ---- compileShaders() -------------------------------------------------------
+// Uses KHR_parallel_shader_compile (via compileAsync) so compilation runs in
+// the background without freezing the main thread. Blit textures must be
+// non-null for Three.js to resolve the correct shader variant.
+export async function compileShaders() {
+    blitMaterial.uniforms.tCurrent.value = rtScene.texture;
+    blitMaterial.uniforms.tHistory.value = rtHistA.texture;
+    await Promise.all([
+        renderer.compileAsync(scene, camera),
+        renderer.compileAsync(blitScene, camera),
+    ]);
+    blitMaterial.uniforms.tCurrent.value = null;
+    blitMaterial.uniforms.tHistory.value = null;
 }
 
 // ---- resizeRenderTargets() -------------------------------------------------
