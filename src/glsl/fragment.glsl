@@ -283,7 +283,9 @@ vec3 GetSkyFog(vec3 rd) {
     col = mix(col, sunsetCol, horizT * smoothstep(0.3, 0.0, abs(rd.y)));
 
     float haze = exp(-10.0 * abs(rd.y));
-    vec3 hazeCol = mix(mix(vec3(0.8, 0.85, 0.9), vec3(0.75, 0.5, 0.2), horizT), nightCol, 1.0 - dayT);
+    vec3 dayHazeCol  = mix(vec3(0.8, 0.85, 0.9), vec3(0.75, 0.5, 0.2), horizT);
+    vec3 nightHazeCol = vec3(0.02, 0.03, 0.07); // faint indigo lift at night horizon
+    vec3 hazeCol = mix(nightHazeCol, dayHazeCol, dayT);
     col = mix(col, hazeCol, haze * 0.5);
 
     // Sun disc and glow — fade out as sun dips below horizon so it doesn't bleed
@@ -440,7 +442,7 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord ) {
         col = GetLight(p, organicDetail, rd, d);
 
         // Distance fog — applies to all surfaces including water/lava (fades horizon edge)
-        float fog = 1.0 - exp(-0.05 * max(0.0, d - 6.0));
+        float fog = 1.0 - exp(-0.07 * max(0.0, d - 6.0));
         col = mix(col, GetSkyFog(rd), fog);
 
     } else {

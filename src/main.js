@@ -1,7 +1,7 @@
 import { setReady, onEnter, hideOverlay } from './ui.js';
 import { Vector3 } from 'three';
 import { uniforms, getCameraAngles } from './uniforms.js';
-import { renderer, render, compileShaders } from './renderer.js';
+import { renderer, render } from './renderer.js';
 import { temporalOn, frameIdx, isMoving, tickFrameIdx, setMoving } from './temporal.js';
 import { keys, registerInputHandlers } from './input.js';
 import { tickFalling, hasActiveFalling, getSpherePos, cellRadius, worldToCell } from './sphereAttachment.js';
@@ -10,28 +10,25 @@ import { queryTerrainHeight } from './heightQuery.js';
 registerInputHandlers(renderer.domElement);
 
 let lastTime = performance.now();
+let entered = false;
 
 const GRAVITY = -22;
 const JUMP_VEL = 12;
 let vy = 0;
 let charFacingX = 0, charFacingZ = 1;
 
-async function init() {
-    await compileShaders();
-    setReady();
-    await onEnter();
+onEnter().then(() => {
+    entered = true;
     hideOverlay();
     uniforms.iCameraPos.value.y = queryTerrainHeight(uniforms.iCameraPos.value.x, uniforms.iCameraPos.value.z) + 2.0;
     lastTime = performance.now();
-    animate();
-}
-init();
+});
 
 function animate() {
     requestAnimationFrame(animate);
 
     const now = performance.now();
-    const dt = (now - lastTime) / 1000;
+    const dt = entered ? (now - lastTime) / 1000 : 0;
     lastTime = now;
     const elapsed = now / 1000;
     uniforms.iTime.value = elapsed;
@@ -43,6 +40,14 @@ function animate() {
         Math.sin(sunAngle),
         -Math.cos(sunAngle)
     ).normalize();
+
+    // ---- Render (always — compiles shaders on first frame behind loading screen)
+    render(temporalOn, frameIdx, isMoving);
+
+    // Signal ready after the first render (shaders now compiled)
+    if (!animate.ready) { animate.ready = true; setReady(); }
+
+    if (!entered) return;
 
     // ---- WASD Movement -----------------------------------------------------
     const moveSpeed = 5.0 * dt;
@@ -132,8 +137,8 @@ function animate() {
 
     tickFalling(dt, forward);
 
-    // ---- Render ------------------------------------------------------------
-    render(temporalOn, frameIdx, isMoving);
     setMoving(false);  // reset each frame; input handlers re-set it if still active
     if (temporalOn) tickFrameIdx();
 }
+
+animate();

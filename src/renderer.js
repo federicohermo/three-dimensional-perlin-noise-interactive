@@ -137,21 +137,6 @@ export function render(temporalOn, frameIdx, moving = false) {
     }
 }
 
-// ---- compileShaders() -------------------------------------------------------
-// Uses KHR_parallel_shader_compile (via compileAsync) so compilation runs in
-// the background without freezing the main thread. Blit textures must be
-// non-null for Three.js to resolve the correct shader variant.
-export async function compileShaders() {
-    blitMaterial.uniforms.tCurrent.value = rtScene.texture;
-    blitMaterial.uniforms.tHistory.value = rtHistA.texture;
-    await Promise.all([
-        renderer.compileAsync(scene, camera),
-        renderer.compileAsync(blitScene, camera),
-    ]);
-    blitMaterial.uniforms.tCurrent.value = null;
-    blitMaterial.uniforms.tHistory.value = null;
-}
-
 // ---- resizeRenderTargets() -------------------------------------------------
 export function resizeRenderTargets(w, h) {
     const rw = Math.max(1, Math.floor(w * renderScale));
