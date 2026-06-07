@@ -2,9 +2,15 @@
 
 Shadertoy-style 3D Perlin noise raymarcher ported to Three.js. Renders a noisy sphere and terrain with orbiting light and soft shadows.
 
+## Documentation
+
+- [`docs/`](docs/README.md) — Technical reference: raymarching, noise, scene SDF, lighting, temporal accumulation, architecture.
+- [`specs/`](specs/README.md) — Feature specs. Each subfolder has `spec.md`, `research.md`, `plan.md`, `tasks.md`. Copy `specs/_template/` for new features.
+
 ## Files
 
 - `index.html` — Self-contained app: vertex/fragment shaders + Three.js setup. Open in browser to run.
+- `src/` — Modular JS + GLSL source. Entry point: `src/main.js`.
 - `perlin3d_fixed.glsl` — Standalone copy of the fragment shader (kept in sync with index.html).
 - `perlin3d.glsl` — Original shader before fixes (reference only).
 
