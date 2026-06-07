@@ -318,8 +318,8 @@ vec3 GetSky(vec3 rd) {
 // ---- Shadows & AO ----
 float CastShadow(vec3 ro, vec3 rd, float tmin, float tmax, float k, float distToCam) {
     float res = 1.0; float t = tmin;
-    int steps = (distToCam < 12.0) ? 32 : 16;
-    tmax = (distToCam < 12.0) ? tmax : min(tmax, 6.0);
+    float lodT = smoothstep(8.0, 16.0, distToCam);
+    int steps = (lodT < 0.5) ? 32 : 16;
     for (int i = 0; i < 32; i++) {
         if(i >= steps || t >= tmax) break;
         float h = GetDist(ro + t*rd, 1.5);
@@ -329,7 +329,9 @@ float CastShadow(vec3 ro, vec3 rd, float tmin, float tmax, float k, float distTo
         }
         res = min(res, k * h / t);
         if (res < 0.005) break; 
-        t += clamp(h, (distToCam < 12.0 ? 0.005 : 0.01), 0.25);
+        float minStep = mix(0.005, 0.01, lodT);
+        float maxStep = mix(0.25, 1.0, lodT);
+        t += clamp(h, minStep, maxStep);
     }
     return clamp(res, 0.0, 1.0);
 }
@@ -404,7 +406,8 @@ vec3 GetLight(vec3 p, float organicDetail, vec3 rd, float rayDist) {
     col += mix(groundAmb, skyAmb, sca) * 0.2;
     col += vec3(0.05, 0.06, 0.12) * nightT * sca; // moonlight fill
 
-    float ao = (distToCam2 < 18.0) ? GetAO(p, n) : 1.0;
+    float aoFade = smoothstep(14.0, 18.0, distToCam2);
+    float ao = (distToCam2 < 18.0) ? mix(GetAO(p, n), 1.0, aoFade) : 1.0;
     col *= ao;
     vec3 h = normalize(l - rd);
     float spec = pow(clamp(dot(n, h), 0.0, 1.0), 32.0);

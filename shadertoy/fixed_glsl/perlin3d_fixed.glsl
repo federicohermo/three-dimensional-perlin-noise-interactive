@@ -380,8 +380,8 @@ vec3 GetNormal(vec3 p, float organicDetail) {
 float CastShadow(vec3 ro, vec3 rd, float tmin, float tmax, float k, float organicDetail, float distToCam) {
     float res = 1.0; float t = tmin;
     // LOD: Fewer steps and shorter range for distant points
-    int steps = (distToCam < 12.0) ? 48 : 24;
-    tmax = (distToCam < 12.0) ? tmax : min(tmax, 6.0);
+    float lodT = smoothstep(8.0, 16.0, distToCam);
+    int steps = (lodT < 0.5) ? 48 : 24;
 
     for (int i = 0; i < 48; i++) { // Uniform loop for compiler; use 'steps' break
         if(i >= steps || t >= tmax) break;
@@ -389,8 +389,9 @@ float CastShadow(vec3 ro, vec3 rd, float tmin, float tmax, float k, float organi
         if (h < SURFACE_DIST) return 0.0;
         res = min(res, k * h / t);
         if (res < 0.005) break; // Aggressive early exit for performance
-        // Relax min step for distant points
-        t += clamp(h, (distToCam < 12.0 ? 0.005 : 0.01), 0.25);
+        float minStep = mix(0.005, 0.01, lodT);
+        float maxStep = mix(0.25, 1.0, lodT);
+        t += clamp(h, minStep, maxStep);
     }
     return clamp(res, 0.0, 1.0);
 }
