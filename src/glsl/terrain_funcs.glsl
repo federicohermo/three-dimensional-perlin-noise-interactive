@@ -41,3 +41,49 @@ float Noise(vec3 p, float octaves) {
     }
     return value / max(0.0001, normalize_factor);
 }
+
+vec2 Hash2(vec2 p) {
+    p = fract(p * vec2(0.1031, 0.1030));
+    p += dot(p, p.yx + 33.33);
+    return -1.0 + 2.0 * fract((p.xx + p.yx) * p.xy);
+}
+
+// 2D Perlin noise with analytical gradient: returns vec3(value, dvalue/dx, dvalue/dy)
+vec3 sNoise2D_d(vec2 p) {
+    vec2 i  = floor(p);
+    vec2 f  = fract(p);
+    vec2 u  = f*f*f*(f*(f*6.0-15.0)+10.0);
+    vec2 du = f*f*(f*(f*30.0-60.0)+30.0);
+    vec2 g00 = Hash2(i);
+    vec2 g10 = Hash2(i + vec2(1,0));
+    vec2 g01 = Hash2(i + vec2(0,1));
+    vec2 g11 = Hash2(i + vec2(1,1));
+    float v00 = dot(g00, f);
+    float v10 = dot(g10, f - vec2(1,0));
+    float v01 = dot(g01, f - vec2(0,1));
+    float v11 = dot(g11, f - vec2(1,1));
+    float val = v00 + u.x*(v10-v00) + u.y*(v01-v00) + u.x*u.y*(v00-v10-v01+v11);
+    vec2 gInt = g00 + u.x*(g10-g00) + u.y*(g01-g00) + u.x*u.y*(g00-g10-g01+g11);
+    float dx  = v10-v00 + u.y*(v00-v10-v01+v11);
+    float dy  = v01-v00 + u.x*(v00-v10-v01+v11);
+    return vec3(val, gInt + du * vec2(dx, dy));
+}
+
+// Erosion FBM (IQ technique): gradient accumulation suppresses octaves on steep slopes
+float erosionFBM(vec2 p, float octaves) {
+    float h = 0.0;
+    vec2  d = vec2(0.0);
+    float a = 0.5;
+    mat2  rot = mat2(1.6, 1.2, -1.2, 1.6);
+    for (int i = 0; i < 8; i++) {
+        float fi = float(i);
+        if (fi >= octaves) break;
+        float w = a * min(1.0, octaves - fi);
+        vec3 n = sNoise2D_d(p);
+        d += n.yz;
+        h += w * n.x / (1.0 + dot(d, d));
+        a *= 0.5;
+        p = rot * p;
+    }
+    return h;
+}

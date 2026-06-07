@@ -157,9 +157,7 @@ float sminE( float a, float b, float k ) {
 // ---- Scene SDF ----
 vec2 GetDistID(vec3 p, float organicDetail) {
     float camDist = length(p - iCameraPos);
-    float oct = 1.0;
-    oct += 2.0 * (1.0 - smoothstep(15.0, 40.0, camDist));
-    oct += (1.0 - smoothstep(5.0, 15.0, camDist)) * organicDetail;
+    float oct = 1.0 + 2.0 * exp(-camDist * 0.05) + exp(-camDist * 0.12) * organicDetail;
 
     // Humanoid character — skip expensive SDF when point is clearly outside character bounds
     float sphereDist = (camDist > 3.5) ? 1e10 : sdCharacter(p);
@@ -205,13 +203,18 @@ vec2 GetDistID(vec3 p, float organicDetail) {
     float noiseAmp = mix(mix(1.0, 0.35, flatland), 1.65, volcanic);
 
     float basePlaneDist = p.y - 8.0;
-    float planeDist = (basePlaneDist < 12.0)
-        ? basePlaneDist + noiseAmp * (8.1*Noise(p*.125, oct) - 1.1*Noise(p*.25, oct) + 0.15*Noise(p, oct)) + 0.1
-        : basePlaneDist - 1.1;
+    float planeDist;
+    if (basePlaneDist < 12.0) {
+        float eH = erosionFBM(p.xz * 0.06, min(oct * 1.5, 4.0));
+        float micro = Noise(p, min(oct, 3.0)) * 0.3 - 0.15;  // 3D micro-texture for normal detail
+        planeDist = basePlaneDist + noiseAmp * (eH * 9.5 + 4.0) + micro + 0.1;
+    } else {
+        planeDist = basePlaneDist - 1.1;
+    }
     planeDist *= 0.4;
 
     // 2A: Water / lava fills deep valleys
-    float waterDist = (p.y - 3.5) * 0.4;
+    float waterDist = (p.y - 2.8) * 0.4;
     planeDist = min(planeDist, waterDist);
 
     // Merge attached spheres into domain sphere pool (before terrain blend)
@@ -353,7 +356,7 @@ vec3 GetLight(vec3 p, float organicDetail, vec3 rd, float rayDist) {
     float distToCam2 = length(p - iCameraPos);
 
     // 2A: Water / lava surface — detected by height
-    if (p.y < 3.65) {
+    if (p.y < 2.95) {
         float biomeN  = sNoise(vec3(p.x * 0.018, 0.5, p.z * 0.018));
         float volcanic = smoothstep(0.60, 0.75, biomeN);
 
@@ -370,29 +373,21 @@ vec3 GetLight(vec3 p, float organicDetail, vec3 rd, float rayDist) {
         float fresnel  = pow(1.0 - max(0.0, dot(wn, -rd)), 3.0);
         float spec     = mix(specBase, specBase * 2.5, fresnel);
 
-        // Lava surface pattern
-        float lavaN  = max(0.0, sNoise(p * 1.4 - vec3(0.0, iTime * 0.04, 0.0)));
-        float lavaGlow = smoothstep(0.25, 0.7, lavaN);
-
         // Terrain depth below water: evaluate terrain SDF at surface without water plane
         // Same noise as GetDistID but oct=1 (cheap), no water min() → gives actual floor distance
         float flatland = smoothstep(0.35, 0.20, biomeN);
         float noiseAmp = mix(mix(1.0, 0.35, flatland), 1.65, volcanic);
-        float basePD   = p.y - 8.0;  // ≈ -4.5 at water surface (y=3.5)
-        float terrainPD = (basePD + noiseAmp * (8.1*Noise(p*0.125, 1.0) - 1.1*Noise(p*0.25, 1.0)) + 0.1) * 0.4;
+        float basePD   = p.y - 8.0;  // ≈ -6 at water surface (y=2.0)
+        float eHW = erosionFBM(p.xz * 0.06, 2.0);
+        float terrainPD = (basePD + noiseAmp * (eHW * 7.0 + 4.5) + 0.1) * 0.4;
         float waterDepth = max(0.0, -terrainPD);  // 0=very shallow, larger=deeper floor
         float depthT  = 1.0 - exp(-waterDepth * 0.8);
         vec3  shallow = vec3(0.10, 0.32, 0.28);
         vec3  deep    = vec3(0.01, 0.05, 0.17);
         vec3  waterBase = mix(shallow, deep, depthT);
 
-        vec3 waterCol = waterBase * (diff * shadow * sunIntens * 0.4 + 0.08)
-                      + vec3(0.65, 0.85, 1.0) * spec;
-        vec3 lavaCol  = vec3(0.18, 0.03, 0.0)
-                      + vec3(1.0, 0.42, 0.04) * lavaGlow * 1.2
-                      + vec3(0.9, 0.25, 0.0)  * spec * 0.6;
-
-        return mix(waterCol, lavaCol, volcanic);
+        return waterBase * (diff * shadow * sunIntens * 0.4 + 0.08)
+             + vec3(0.65, 0.85, 1.0) * spec;
     }
 
     vec3 n = GetNormal(p, organicDetail, rayDist);
