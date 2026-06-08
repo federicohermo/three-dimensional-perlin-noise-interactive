@@ -31,10 +31,10 @@ renderer.setPixelRatio(1);  // Capped at 1x to avoid 4x pixel count on HiDPI scr
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
-const camera = new OrthographicCamera(-1, 1, 1, -1, 0, 1);
+export const camera = new OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
 // ---- Main scene (fullscreen raymarcher quad) --------------------------------
-const scene = new Scene();
+export const scene = new Scene();
 const material = new ShaderMaterial({ vertexShader, fragmentShader, uniforms });
 scene.add(new Mesh(new PlaneGeometry(2, 2), material));
 
@@ -72,7 +72,7 @@ const blitMaterial = new ShaderMaterial({
         iResolution: { value: blitResolution },  // decoupled from main shader
     },
 });
-const blitScene = new Scene();
+export const blitScene = new Scene();
 blitScene.add(new Mesh(new PlaneGeometry(2, 2), blitMaterial));
 
 // ---- render() — encapsulates the full ping-pong blit logic -----------------

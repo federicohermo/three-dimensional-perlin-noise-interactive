@@ -1,7 +1,7 @@
 import { setReady, onEnter, hideOverlay } from './ui.js';
 import { Vector3 } from 'three';
 import { uniforms, getCameraAngles } from './uniforms.js';
-import { renderer, render } from './renderer.js';
+import { renderer, render, scene, blitScene, camera } from './renderer.js';
 import { temporalOn, frameIdx, isMoving, tickFrameIdx, setMoving } from './temporal.js';
 import { keys, registerInputHandlers } from './input.js';
 import { tickFalling, hasActiveFalling, getSpherePos, cellRadius, worldToCell } from './sphereAttachment.js';
@@ -41,11 +41,7 @@ function animate() {
         -Math.cos(sunAngle)
     ).normalize();
 
-    // ---- Render (always — compiles shaders on first frame behind loading screen)
     render(temporalOn, frameIdx, isMoving);
-
-    // Signal ready after the first render (shaders now compiled)
-    if (!animate.ready) { animate.ready = true; setReady(); }
 
     if (!entered) return;
 
@@ -141,4 +137,9 @@ function animate() {
     if (temporalOn) tickFrameIdx();
 }
 
-animate();
+(async () => {
+    await renderer.compileAsync(scene, camera);
+    await renderer.compileAsync(blitScene, camera);
+    setReady();
+    animate();
+})();
